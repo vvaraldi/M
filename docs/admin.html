@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com; frame-src https://m-dealer-portal.firebaseapp.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<title>M · Admin</title>
+<link rel="icon" href="assets/img/icon-64.png">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<main id="view-loading" class="center-screen"><div><div class="spinner" role="status"></div><div>Loading…</div></div></main>
+
+<main id="view-noaccess" class="center-screen" hidden>
+  <div style="max-width:440px">
+    <h1 style="color:var(--brand-dark);font-size:24px;margin-bottom:8px">Admin</h1>
+    <p id="noaccess-text">This page is for the portal owner. Please sign in on the portal first.</p>
+    <p><a class="btn btn-primary" href="./">Go to the portal</a></p>
+  </div>
+</main>
+
+<div id="view-app" hidden>
+  <header class="topbar">
+    <a class="brand" href="./"><img src="assets/img/logo-white.png" alt="M"><span class="portal-name">Admin</span></a>
+    <nav class="tabs" role="tablist" aria-label="Admin sections">
+      <button role="tab" id="tab-shops" aria-selected="true" aria-controls="panel-shops">Shops</button>
+      <button role="tab" id="tab-stock" aria-selected="false" aria-controls="panel-stock">Stock upload</button>
+    </nav>
+    <span class="spacer"></span>
+    <a class="btn btn-ghost-light btn-sm" href="./">Portal view</a>
+    <span id="who" class="shopchip"></span>
+    <button id="signout" class="btn btn-ghost-light btn-sm">Sign out</button>
+  </header>
+
+  <main class="page">
+    <!-- SHOPS -->
+    <section id="panel-shops" role="tabpanel" aria-labelledby="tab-shops">
+      <div class="h-row"><h2>Shops and users</h2><button id="new-shop" class="btn btn-primary">Add a shop</button></div>
+      <div class="msg msg-info">Each shop has one currency, one price type and one language. Add the email addresses of the people who may sign in, then press <b>Send sign-in email</b> next to each address.</div>
+      <div class="card" style="overflow:auto"><table class="t stack" id="shops-table">
+        <thead><tr><th>Shop</th><th>Prices</th><th>Language</th><th>Users</th><th>Status</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
+      <p id="shops-empty" class="count" hidden>No shop yet. Add the first one.</p>
+    </section>
+
+    <!-- STOCK -->
+    <section id="panel-stock" role="tabpanel" aria-labelledby="tab-stock" hidden>
+      <div class="h-row"><h2>Stock upload</h2></div>
+      <div class="grid2">
+        <div class="card pad">
+          <h3 style="margin-bottom:10px">Currently published</h3>
+          <dl class="kv" id="published"></dl>
+        </div>
+        <div class="card pad">
+          <h3 style="margin-bottom:10px">Publish a new stock file</h3>
+          <ol style="margin:0 0 12px;padding-left:20px;color:var(--muted)">
+            <li>In Excel, refresh the Stock sheet and save the workbook.</li>
+            <li>Double-click <code>tools\run-export.bat</code>.</li>
+            <li>Choose <code>tools\output\stock.json</code> below.</li>
+          </ol>
+          <div class="drop"><label class="field" style="margin:0"><span class="lbl">stock.json</span><input id="file" type="file" accept=".json,application/json"></label></div>
+        </div>
+      </div>
+      <div id="preview" class="card pad" style="margin-top:16px" hidden>
+        <h3 style="margin-bottom:10px">File to publish</h3>
+        <div id="preview-warn"></div>
+        <dl class="kv" id="preview-kv"></dl>
+        <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+          <button id="publish" class="btn btn-cta">Publish to the portal</button>
+          <button id="cancel-publish" class="btn btn-ghost">Cancel</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Shop editor -->
+<dialog id="shop-dialog" aria-labelledby="dlg-title">
+  <form method="dialog" id="shop-form" novalidate>
+    <div class="dh"><span id="dlg-title">Shop</span><button type="button" class="btn btn-ghost-light btn-sm" id="dlg-close" aria-label="Close">Close</button></div>
+    <div class="db">
+      <div id="dlg-error" class="msg msg-error" role="alert" hidden></div>
+      <div class="field"><label for="f-name">Shop name</label><input id="f-name" required maxlength="120"></div>
+      <div class="grid2">
+        <div class="field"><label for="f-currency">Currency</label><select id="f-currency"><option>CAD</option><option>USD</option><option>EUR</option></select></div>
+        <div class="field"><label for="f-type">Price type</label><select id="f-type"><option value="SHOP">Shop (dealer) price</option><option value="RETAIL">Retail price</option><option value="EXPORT">Export price (EUR only)</option></select></div>
+        <div class="field"><label for="f-lang">Language</label><select id="f-lang"><option value="en">English</option><option value="fr">Français</option><option value="it">Italiano</option></select></div>
+        <div class="field"><span class="lbl">Status</span><label class="check"><input type="checkbox" id="f-active" checked> Active (users can sign in)</label></div>
+      </div>
+      <div class="field"><span class="lbl">Delivery addresses (up to 3)</span><div id="addresses"></div></div>
+      <div class="field"><span class="lbl">Users (email addresses allowed to sign in)</span>
+        <div id="users"></div>
+        <div style="display:flex;gap:8px;margin-top:8px"><input id="f-newuser" type="email" placeholder="name@shop.com" aria-label="New user email" style="flex:1;font:400 16px var(--font-ui);padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm)"><button type="button" class="btn btn-ghost" id="add-user">Add</button></div>
+        <span class="hint">Save the shop first, then send the sign-in email.</span>
+      </div>
+    </div>
+    <div class="df">
+      <button type="button" class="btn btn-ghost" id="dlg-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="dlg-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="assets/js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "firestore": [
+    {
+      "database": "m-dealer-db",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com; frame-src https://m-dealer-portal.firebaseapp.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<title>M · Dealer portal</title>
+<link rel="icon" href="assets/img/icon-64.png">
+<link rel="apple-touch-icon" href="assets/img/icon-192.png">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<!-- Loading -->
+<main id="view-loading" class="center-screen"><div><div class="spinner" role="status"></div><div data-i="loading">Loading…</div></div></main>
+
+<!-- Sign in -->
+<main id="view-signin" class="auth" hidden>
+  <section class="left">
+    <img src="assets/img/logo-white.png" alt="M">
+    <div><h1 data-i="signin_title">Dealer portal</h1><p data-i="signin_sub">Stock, prices and documents for M's partner shops.</p></div>
+    <svg viewBox="0 0 520 130" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" preserveAspectRatio="none">
+      <path d="M0 110 L40 30 L70 85 L110 12 L140 95 L190 22 L225 88 L270 40 L300 98 L350 26 L385 84 L430 48 L470 96 L520 56" stroke="#0091B3" stroke-width="3"/>
+      <path d="M0 122 L55 62 L85 104 L130 48 L165 108 L215 54 L250 106 L295 70 L330 112 L380 52 L420 102 L470 74 L520 110" stroke="#C4D600" stroke-width="2" opacity=".85"/>
+    </svg>
+  </section>
+  <section class="right"><div class="inner">
+    <div class="top"><span class="pills" data-pills role="group" aria-label="Language"><button data-l="en" aria-pressed="true">EN</button><button data-l="fr" aria-pressed="false">FR</button><button data-l="it" aria-pressed="false">IT</button></span></div>
+    <h2 data-i="signin_h">Sign in</h2>
+    <p class="sub" data-i="signin_p">Enter the email address your invitation was sent to. We will email you a one-time sign-in link.</p>
+    <div id="signin-error" class="msg msg-error" role="alert" hidden></div>
+    <form id="signin-form" novalidate>
+      <div class="field"><label for="signin-email" data-i="email">Email</label>
+        <input id="signin-email" type="email" autocomplete="email" inputmode="email" required data-ph="email_ph" placeholder="you@yourshop.com"></div>
+      <button id="signin-btn" class="btn btn-cta" type="submit" data-i="send_link">Email me a sign-in link</button>
+    </form>
+    <p class="legal" data-i="legal">By invitation only. Prices and stock are confidential and for the use of M's partner shops.</p>
+  </div></section>
+</main>
+
+<!-- Link sent -->
+<main id="view-sent" class="auth" hidden>
+  <section class="left"><img src="assets/img/logo-white.png" alt="M"><div><h1 data-i="signin_title">Dealer portal</h1></div></section>
+  <section class="right"><div class="inner">
+    <div class="top"><span class="pills" data-pills role="group" aria-label="Language"><button data-l="en" aria-pressed="true">EN</button><button data-l="fr" aria-pressed="false">FR</button><button data-l="it" aria-pressed="false">IT</button></span></div>
+    <h2 data-i="sent_h">Check your inbox</h2>
+    <p class="sub" id="sent-text"></p>
+    <button id="sent-other" class="btn btn-ghost" data-i="sent_other">Use another email</button>
+  </div></section>
+</main>
+
+<!-- Link opened on another device: ask for the email -->
+<main id="view-confirm" class="auth" hidden>
+  <section class="left"><img src="assets/img/logo-white.png" alt="M"><div><h1 data-i="signin_title">Dealer portal</h1></div></section>
+  <section class="right"><div class="inner">
+    <h2 data-i="confirm_h">Confirm your email</h2>
+    <p class="sub" data-i="confirm_p">For your security, please type the email address this sign-in link was sent to.</p>
+    <form id="confirm-form" novalidate>
+      <div class="field"><label for="confirm-email" data-i="email">Email</label><input id="confirm-email" type="email" autocomplete="email" required></div>
+      <button class="btn btn-cta" type="submit" data-i="confirm_btn">Continue</button>
+    </form>
+  </div></section>
+</main>
+
+<!-- Signed in but not invited -->
+<main id="view-denied" class="auth" hidden>
+  <section class="left"><img src="assets/img/logo-white.png" alt="M"><div><h1 data-i="signin_title">Dealer portal</h1></div></section>
+  <section class="right"><div class="inner">
+    <h2 data-i="denied_h">No access yet</h2>
+    <p class="sub" id="denied-text"></p>
+    <button class="btn btn-ghost" data-signout data-i="sign_out">Sign out</button>
+  </div></section>
+</main>
+
+<!-- The portal -->
+<div id="view-app" hidden>
+  <header class="topbar">
+    <a class="brand" href="./"><img src="assets/img/logo-white.png" alt="M"><span class="portal-name" data-i="portal">Dealer portal</span></a>
+    <span class="spacer"></span>
+    <a id="admin-link" class="btn btn-ghost-light btn-sm" href="admin.html" hidden>Admin</a>
+    <span class="pills" data-pills role="group" aria-label="Language"><button data-l="en" aria-pressed="true">EN</button><button data-l="fr" aria-pressed="false">FR</button><button data-l="it" aria-pressed="false">IT</button></span>
+    <span id="shop-chip" class="shopchip"></span>
+    <button class="btn btn-ghost-light btn-sm" data-signout data-i="sign_out">Sign out</button>
+  </header>
+  <div id="banner" class="banner"></div>
+  <main class="page">
+    <div id="app-error" class="msg msg-error" role="alert" hidden></div>
+    <div id="stock-ui" hidden>
+      <div class="toolbar">
+        <div class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <label class="sr-only" for="q" data-i="search_lbl">Search</label>
+          <input id="q" type="search" autocomplete="off" data-ph="search_ph" placeholder="Search model, size or code">
+        </div>
+        <select id="size" class="sel" aria-label="Size"></select>
+        <select id="cond" class="sel" aria-label="Condition"></select>
+      </div>
+      <div id="chips" class="chips" role="group"></div>
+      <p id="count" class="count" aria-live="polite"></p>
+      <div id="list"></div>
+      <p id="contact" class="foot"></p>
+    </div>
+  </main>
+</div>
+
+<script type="module" src="assets/js/portal.js"></script>
+</body>
+</html>

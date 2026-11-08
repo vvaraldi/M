@@ -1,0 +1,34 @@
+# This repository is PUBLIC and holds code only.
+# Never commit business data, workbooks, keys or passwords.
+
+# Business files
+*.xlsm
+*.xlsx
+*.xls
+*.csv
+tools/output/
+tools/local-config.json
+
+# Keys and secrets
+*.pem
+*.key
+service-account*.json
+*-adminsdk-*.json
+.env
+.env.*
+.runtimeconfig.json
+
+# Tooling
+node_modules/
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+__pycache__/
+*.pyc
+.venv/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.claude/

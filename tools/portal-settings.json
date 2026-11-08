@@ -1,0 +1,33 @@
+{
+  "_comment": "Settings for tools/export_stock.py. Safe to commit: no personal data and no file paths here (those go in local-config.json).",
+
+  "currentSeasonCode": 26,
+  "currentSeasonLabel": "26-27",
+
+  "priceTiers": ["SHOP_CAD", "SHOP_USD", "SHOP_EUR", "RETAIL_CAD", "RETAIL_USD", "RETAIL_EUR", "EXPORT_EUR"],
+
+  "fallbackToLastKnownPrice": false,
+  "pricedConditions": ["New"],
+
+  "units": {
+    "Ski": "pair",
+    "Binding": "pair",
+    "Pole": "pair",
+    "Skin": "pair",
+    "Skin Acc": "piece",
+    "Binding Acc": "piece",
+    "Pole Acc": "piece",
+    "Helmet": "piece",
+    "BackPack": "piece",
+    "Clothes": "piece",
+    "HeadLamp": "piece",
+    "Bag": "piece"
+  },
+  "unitOverrides": [
+    { "category": "Skin", "descriptionStartsWith": "ROLL", "unit": "m" }
+  ],
+  "minQty": { "m": 1 },
+
+  "hideCategories": [],
+  "staleStockHours": 36
+}

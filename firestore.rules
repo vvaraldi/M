@@ -1,0 +1,75 @@
+rules_version = '2';
+
+// M dealer portal - Firestore security rules (database: m-dealer-db)
+//
+// Principle: everything is denied unless a rule below allows it.
+//  - Only the admin (the owner) can write anything, except a user's own display language.
+//  - A person can read stock only if the admin invited them (a document in /users/<email>)
+//    and the invitation is active.
+//  - Prices are stored one document per price tier (for example SHOP_CAD). A user can only
+//    read the tier written on their own invitation, so a CAD shop cannot read USD, retail
+//    or export prices even with browser developer tools.
+//  - Warehouse locations live in /admin and are never readable by shops.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null
+          && request.auth.token.email != null
+          && request.auth.token.email_verified == true;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    function isAdmin() {
+      return signedIn() && myEmail() == 'vincent.varaldi@gmail.com';
+    }
+    function myUserPath() {
+      return /databases/$(database)/documents/users/$(myEmail());
+    }
+    function isInvited() {
+      return signedIn() && exists(myUserPath()) && get(myUserPath()).data.active == true;
+    }
+    function myData() {
+      return get(myUserPath()).data;
+    }
+
+    // One invitation per email address. Document id = the email address in lower case.
+    match /users/{email} {
+      allow read: if isAdmin() || (signedIn() && email == myEmail());
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (signedIn() && email == myEmail()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['language'])
+            && request.resource.data.language in ['en', 'fr', 'it']);
+    }
+
+    // One document per shop (name, currency, price tier, addresses).
+    match /shops/{shopId} {
+      allow read: if isAdmin() || (isInvited() && myData().shopId == shopId);
+      allow write: if isAdmin();
+    }
+
+    // Published stock: /stock/meta (date, counts) and /stock/items (the lines, no prices, no location).
+    match /stock/{docId} {
+      allow read: if isAdmin() || isInvited();
+      allow write: if isAdmin();
+    }
+
+    // Prices: one document per tier, e.g. SHOP_CAD, SHOP_USD, RETAIL_CAD, EXPORT_EUR.
+    match /prices/{tier} {
+      allow read: if isAdmin() || (isInvited() && myData().priceTier == tier);
+      allow write: if isAdmin();
+    }
+
+    // Admin-only data (warehouse locations, upload log, later: requests export).
+    match /admin/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Everything else stays closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
