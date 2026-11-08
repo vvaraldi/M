@@ -40,8 +40,12 @@
     <section id="panel-shops" role="tabpanel" aria-labelledby="tab-shops">
       <div class="h-row"><h2>Shops and users</h2><button id="new-shop" class="btn btn-primary">Add a shop</button></div>
       <div class="msg msg-info">Each shop has one currency, one price type and one language. Add the email addresses of the people who may sign in, then press <b>Send sign-in email</b> next to each address.</div>
+      <div id="migrate-box" class="msg msg-warn" hidden>
+        <b><span id="migrate-count">0</span> shop(s) have no brand set yet</b>, so their users currently see no stock.
+        <button id="migrate-btn" class="btn btn-primary btn-sm" type="button" style="margin-left:8px">Give them SkiTrab</button>
+      </div>
       <div class="card" style="overflow:auto"><table class="t stack" id="shops-table">
-        <thead><tr><th>Shop</th><th>Prices</th><th>Language</th><th>Users</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Shop</th><th>Prices</th><th>Brands</th><th>Language</th><th>Users (* = own brands)</th><th>Status</th><th></th></tr></thead>
         <tbody></tbody></table></div>
       <p id="shops-empty" class="count" hidden>No shop yet. Add the first one.</p>
     </section>
@@ -90,6 +94,8 @@
         <div class="field"><label for="f-lang">Language</label><select id="f-lang"><option value="en">English</option><option value="fr">Français</option><option value="it">Italiano</option></select></div>
         <div class="field"><span class="lbl">Status</span><label class="check"><input type="checkbox" id="f-active" checked> Active (users can sign in)</label></div>
       </div>
+      <div class="field"><span class="lbl">Brands this shop may see</span><div id="f-brands" class="brands"></div>
+        <span class="hint">Shops only ever receive the brands ticked here. A user can have their own list below.</span></div>
       <div class="field"><span class="lbl">Delivery addresses (up to 3)</span><div id="addresses"></div></div>
       <div class="field"><span class="lbl">Users (email addresses allowed to sign in)</span>
         <div id="users"></div>

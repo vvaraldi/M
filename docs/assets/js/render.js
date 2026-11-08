@@ -29,11 +29,12 @@ export const presentConditions = (items) => [...new Set(items.map((i) => i.condi
 export function filterItems(items, f) {
   const words = norm(f.query).split(/\s+/).filter(Boolean);
   return items.filter((i) => {
+    if (f.brand && i.brand !== f.brand) return false;
     if (f.group && groupKey(i.category) !== f.group) return false;
     if (f.size && i.size !== f.size) return false;
     if (f.condition && i.condition !== f.condition) return false;
     if (!words.length) return true;
-    const hay = norm([i.description, i.size, i.color, i.sku, i.family, categoryLabel(i.category), conditionLabel(i.condition)].join(" "));
+    const hay = norm([i.description, i.size, i.color, i.code, i.sku, i.family, categoryLabel(i.category), conditionLabel(i.condition)].join(" "));
     return words.every((w) => hay.includes(w));
   });
 }
@@ -54,13 +55,13 @@ export function renderStock(container, items, ctx) {
   container.replaceChildren();
   const groups = new Map();
   for (const i of items) {
-    const key = i.category + "|" + i.description;
-    if (!groups.has(key)) groups.set(key, { category: i.category, family: i.family, description: i.description, rows: [] });
+    const key = i.brand + "|" + i.category + "|" + i.description;
+    if (!groups.has(key)) groups.set(key, { brand: i.brand, category: i.category, family: i.family, description: i.description, rows: [] });
     groups.get(key).rows.push(i);
   }
   for (const g of groups.values()) {
     g.rows.sort((a, b) => natural(a.size, b.size) || natural(a.color, b.color) || natural(a.condition, b.condition));
-    const meta = [categoryLabel(g.category), g.family].filter(Boolean).join(" · ");
+    const meta = [ctx.showBrand ? g.brand : "", categoryLabel(g.category), g.family].filter(Boolean).join(" · ");
     const card = h("article", { class: "product" },
       h("div", { class: "pbody" },
         h("h3", { class: "ptitle", text: g.description }),
@@ -68,7 +69,7 @@ export function renderStock(container, items, ctx) {
         h("div", { class: "vrow vhead", "aria-hidden": "true" },
           h("span", { text: t("h_size") }), h("span", { text: t("h_cond") }), h("span", { text: t("h_av") }), h("span", { text: t("h_price") })),
         g.rows.map((i) => h("div", { class: "vrow" },
-          h("span", {}, [i.size, i.color].filter(Boolean).join(" · ") || "–", i.sku ? h("span", { class: "sub", text: i.sku }) : null),
+          h("span", {}, [i.size, i.color].filter(Boolean).join(" · ") || "–", i.code ? h("span", { class: "sub", text: i.code }) : null),
           h("span", {}, h("span", { class: "badge " + (BADGE[i.condition] || "b-new"), text: conditionLabel(i.condition) })),
           h("span", { class: "avail" }, qtyFormat(i.available) + " ", h("small", { text: unitLabel(i.unit, i.available) })),
           priceCell(ctx.prices[i.id], ctx.currency, i.unit)))));

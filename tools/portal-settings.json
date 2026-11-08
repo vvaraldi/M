@@ -6,6 +6,12 @@
 
   "priceTiers": ["SHOP_CAD", "SHOP_USD", "SHOP_EUR", "RETAIL_CAD", "RETAIL_USD", "RETAIL_EUR", "EXPORT_EUR"],
 
+  "defaultBrand": "SkiTrab",
+  "brandRules": [
+    { "descriptionStartsWith": "VILLACAMPA", "brand": "VillaCampa" }
+  ],
+  "seasonByBrand": {},
+
   "fallbackToLastKnownPrice": false,
   "pricedConditions": ["New"],
 

@@ -6,10 +6,12 @@ rules_version = '2';
 //  - Only the admin (the owner) can write anything, except a user's own display language.
 //  - A person can read stock only if the admin invited them (a document in /users/<email>)
 //    and the invitation is active.
-//  - Prices are stored one document per price tier (for example SHOP_CAD). A user can only
-//    read the tier written on their own invitation, so a CAD shop cannot read USD, retail
-//    or export prices even with browser developer tools.
-//  - Warehouse locations live in /admin and are never readable by shops.
+//  - Stock and prices are stored one document per BRAND (items__skitrab, SHOP_CAD__skitrab, ...).
+//    A user can only read the brands on their own invitation (users/<email>.brands), so a shop
+//    cannot see another brand even with browser developer tools.
+//  - Prices are also one document per price tier. A user can only read the tier written on their
+//    own invitation, so a CAD shop cannot read USD, retail or export prices either.
+//  - Warehouse locations, brand lists and upload details live in /admin and are never readable by shops.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -33,6 +35,21 @@ service cloud.firestore {
     function myData() {
       return get(myUserPath()).data;
     }
+    // Brand keys (lower case letters and digits) the admin allowed for this user. Missing = none.
+    function myBrands() {
+      return myData().get('brands', []);
+    }
+    // stock/meta (date and contact only) or stock/items__<brand> for an allowed brand.
+    function stockDocReadable(docId) {
+      return docId == 'meta'
+          || (docId.matches('items__[a-z0-9]+') && docId.split('__')[1] in myBrands());
+    }
+    // prices/<TIER>__<brand>: the user's own tier AND an allowed brand.
+    function priceDocReadable(docId) {
+      return docId.matches('[A-Z]+_[A-Z]{3}__[a-z0-9]+')
+          && docId.split('__')[0] == myData().priceTier
+          && docId.split('__')[1] in myBrands();
+    }
 
     // One invitation per email address. Document id = the email address in lower case.
     match /users/{email} {
@@ -44,25 +61,25 @@ service cloud.firestore {
             && request.resource.data.language in ['en', 'fr', 'it']);
     }
 
-    // One document per shop (name, currency, price tier, addresses).
+    // One document per shop (name, currency, price tier, brands, addresses).
     match /shops/{shopId} {
       allow read: if isAdmin() || (isInvited() && myData().shopId == shopId);
       allow write: if isAdmin();
     }
 
-    // Published stock: /stock/meta (date, counts) and /stock/items (the lines, no prices, no location).
+    // Published stock: /stock/meta (date and contact only) and /stock/items__<brand> (lines, no prices, no location).
     match /stock/{docId} {
-      allow read: if isAdmin() || isInvited();
+      allow read: if isAdmin() || (isInvited() && stockDocReadable(docId));
       allow write: if isAdmin();
     }
 
-    // Prices: one document per tier, e.g. SHOP_CAD, SHOP_USD, RETAIL_CAD, EXPORT_EUR.
-    match /prices/{tier} {
-      allow read: if isAdmin() || (isInvited() && myData().priceTier == tier);
+    // Prices: one document per tier and brand, e.g. SHOP_CAD__skitrab, RETAIL_USD__villacampa.
+    match /prices/{docId} {
+      allow read: if isAdmin() || (isInvited() && priceDocReadable(docId));
       allow write: if isAdmin();
     }
 
-    // Admin-only data (warehouse locations, upload log, later: requests export).
+    // Admin-only data (warehouse locations, brand list, upload details, later: requests export).
     match /admin/{docId} {
       allow read, write: if isAdmin();
     }

@@ -90,7 +90,7 @@ def read_catalogue(wb):
     ws = wb["Catalogue"]
     hdr_row, cols = find_header(ws, ["Ref", "EAN", "DealerCAD", "FromSeason", "ToSeason"])
     ix = {k: v[0] for k, v in cols.items()}
-    need = ["Active", "Category", "Family", "Description", "EAN", "RetailCAD", "DealerCAD", "RetailUSD",
+    need = ["Active", "PartNo", "Brand", "Category", "Family", "Description", "EAN", "RetailCAD", "DealerCAD", "RetailUSD",
             "DealerUSD", "RetailEUR", "DealerEUR", "ExportEUR", "FromSeason", "ToSeason"]
     missing = [h for h in need if h not in ix]
     if missing:
@@ -119,6 +119,61 @@ def pick_catalogue_line(lines, season, fallback):
         if older:
             return max(older, key=lambda l: (l["ToSeason"] or 50, l["Ref"])), "older"
     return None, "none"
+
+
+def read_move_codes(wb):
+    """SKU -> part number as typed on the 'Stock moves' sheet (used only when the Catalogue has none)."""
+    if "Stock moves" not in wb.sheetnames:
+        return {}
+    ws = wb["Stock moves"]
+    try:
+        hdr_row, cols = find_header(ws, ["MoveID", "SKU", "PartNo"])
+    except SystemExit:
+        return {}
+    isku, ipn = cols["SKU"][0], cols["PartNo"][0]
+    out = {}
+    for row in ws.iter_rows(min_row=hdr_row + 1, values_only=True):
+        sku, pn = clean(row[isku]), clean(row[ipn])
+        if sku and pn and not pn.startswith("P:") and any(ch.isdigit() for ch in pn):  # 'VILLACAMPA' is a brand, not a code
+            out.setdefault(sku, pn)
+    return out
+
+
+def derive_code(sku):
+    """For lines kept under a 'P:' code (no catalogue match): 'P:21022-115|115|' -> '21022-115'. Brand names give ''."""
+    if not sku.startswith("P:"):
+        return ""
+    first = sku[2:].split("|")[0].strip()
+    return first if first and any(ch.isdigit() for ch in first) else ""
+
+
+def brand_key(name):
+    """Same rule as the website: lower case letters and digits only ('Villa Campa' -> 'villacampa')."""
+    return re.sub(r"[^a-z0-9]+", "", str(name).lower())
+
+
+def brand_of(description, all_lines, settings):
+    """Brand from the Catalogue match; otherwise the first matching rule in settings; otherwise the default brand."""
+    for l in sorted(all_lines, key=lambda l: l["FromSeason"] or 0, reverse=True):
+        b = clean(l.get("Brand"))
+        if b:
+            return b, "catalogue"
+    for rule in settings.get("brandRules", []):
+        if description.upper().startswith(rule["descriptionStartsWith"].upper()):
+            return rule["brand"], "rule"
+    return settings["defaultBrand"], "default"
+
+
+def item_code(sku, cat_line, all_lines, move_codes):
+    """Item code shown to shops (the barcode stays in the data only for searching)."""
+    for l in ([cat_line] if cat_line else []) + sorted(all_lines, key=lambda l: l["FromSeason"] or 0, reverse=True):
+        pn = clean(l.get("PartNo"))
+        if pn:
+            return pn, "catalogue"
+    if sku in move_codes:
+        return move_codes[sku], "stock moves"
+    d = derive_code(sku)
+    return (d, "derived") if d else ("", "none")
 
 
 # ----------------------------------------------------------------------------- stock
@@ -188,6 +243,7 @@ def main():
     wb = openpyxl.load_workbook(wb_path, data_only=True, read_only=True, keep_vba=False)
     stock_lines, stamp = read_stock(wb, settings)
     catalogue = read_catalogue(wb)
+    move_codes = read_move_codes(wb)
     wb.close()
 
     # ---- merge identical SKU + condition held in several locations
@@ -215,10 +271,19 @@ def main():
             continue
         qty = int(qty) if float(qty).is_integer() else qty
         all_lines = catalogue.get(sku, [])
-        cat_line, how = pick_catalogue_line(all_lines, season, settings["fallbackToLastKnownPrice"])
+        brand, brand_src = brand_of(m["description"], all_lines, settings)
+        if brand_src != "catalogue":
+            rep["brand_assumed"].append(f'{m["description"]} {m["size"]}: {brand} (by {brand_src})')
+        cat_line, how = pick_catalogue_line(all_lines, settings.get("seasonByBrand", {}).get(brand, season),
+                                            settings["fallbackToLastKnownPrice"])
         family = clean((cat_line or (all_lines[-1] if all_lines else {})).get("Family"))
+        code, code_src = item_code(sku, cat_line, all_lines, move_codes)
+        if not code:
+            rep["no_item_code"].append(f'{m["description"]} {m["size"]} ({sku})')
+        elif code_src != "catalogue":
+            rep["code_not_from_catalogue"].append(f'{m["description"]} {m["size"]}: {code} (from {code_src})')
         item = {
-            "id": iid, "sku": sku if not sku.startswith("P:") else "", "category": m["category"],
+            "id": iid, "brand": brand, "code": code, "sku": sku if not sku.startswith("P:") else "", "category": m["category"],
             "family": family,
             "description": m["description"], "size": m["size"], "color": m["color"],
             "condition": cond, "available": qty, "unit": unit,
@@ -268,6 +333,17 @@ def main():
     items.sort(key=lambda i: (cat_order.index(i["category"]) if i["category"] in cat_order else 99,
                               i["description"].lower(), natural_key(i["size"]), i["color"].lower(), i["condition"]))
 
+    brands = OrderedDict()
+    for i in items:
+        brands.setdefault(i["brand"], 0)
+        brands[i["brand"]] += 1
+    keys = defaultdict(list)
+    for name in brands:
+        keys[brand_key(name)].append(name)
+    for k, names in keys.items():
+        if not k or len(names) > 1:
+            raise SystemExit(f"Brand names {names} give the same web key '{k}'. Please make them different in the Catalogue sheet.")
+
     now = dt.datetime.now(dt.timezone.utc)
     out = {
         "schema": SCHEMA,
@@ -296,6 +372,7 @@ def main():
     P(f"Stock lines read: {n_lines_in}  ->  {len(merged)} distinct items after merging locations"
       f"  ->  {len(items)} published (available > 0)")
     P(f"Items with nothing available (not published): {n_zero}")
+    P("By brand: " + ", ".join(f"{b} {n}" for b, n in brands.items()))
     for tier in settings["priceTiers"]:
         P(f"  prices {tier:<11}: {len(prices[tier])} of {len(items)} items")
     P("")
@@ -305,6 +382,9 @@ def main():
         "price_from_older_season": "PRICE TAKEN FROM AN OLDER SEASON (fallbackToLastKnownPrice is on)",
         "non_new_on_request": "NOT NEW (Demo / Old graphics / Defect): price on request until clearance pricing exists",
         "rounded_to_zero": "Fractional quantity rounded down to zero (not published)",
+        "brand_assumed": "BRAND NOT IN THE CATALOGUE (brand taken from a rule or the default in portal-settings.json)",
+        "no_item_code": "NO ITEM CODE found (shown without a code)",
+        "code_not_from_catalogue": "Item code taken from the Stock moves sheet or derived from the P: code",
         "merged_locations": "Same item in several locations (merged; locations stay private)",
     }
     for k, title in titles.items():

@@ -57,6 +57,7 @@
   <section class="right"><div class="inner">
     <h2 data-i="confirm_h">Confirm your email</h2>
     <p class="sub" data-i="confirm_p">For your security, please type the email address this sign-in link was sent to.</p>
+    <div id="confirm-error" class="msg msg-error" role="alert" hidden></div>
     <form id="confirm-form" novalidate>
       <div class="field"><label for="confirm-email" data-i="email">Email</label><input id="confirm-email" type="email" autocomplete="email" required></div>
       <button class="btn btn-cta" type="submit" data-i="confirm_btn">Continue</button>
@@ -97,9 +98,10 @@
         <select id="size" class="sel" aria-label="Size"></select>
         <select id="cond" class="sel" aria-label="Condition"></select>
       </div>
+      <div id="brand-chips" class="chips" role="group" aria-label="Brand" hidden></div>
       <div id="chips" class="chips" role="group"></div>
       <p id="count" class="count" aria-live="polite"></p>
-      <div id="list"></div>
+      <div id="list" class="list-grid"></div>
       <p id="contact" class="foot"></p>
     </div>
   </main>

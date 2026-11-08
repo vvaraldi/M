@@ -11,9 +11,9 @@ const $ = (id) => document.getElementById(id);
 const VIEWS = ["loading", "signin", "sent", "confirm", "denied", "app"];
 const show = (name) => VIEWS.forEach((v) => { $("view-" + v).hidden = v !== name; });
 
-let profile = null, shop = null, meta = null, items = [], prices = {};
+let profile = null, shop = null, meta = null, items = [], prices = {}, brands = [];   // brands: [{key,name}] that have stock
 let pendingError = null, lastEmail = "";
-const filters = { query: "", group: "", size: "", condition: "" };
+const filters = { query: "", brand: "", group: "", size: "", condition: "" };
 
 // ------------------------------------------------------------------ language
 function hasStoredLang() { try { return LANGS.includes(localStorage.getItem("lang")); } catch (e) { return false; } }
@@ -67,8 +67,11 @@ $("signin-form").addEventListener("submit", async (e) => {
 });
 $("sent-other").addEventListener("click", () => { show("signin"); $("signin-email").focus(); });
 
-function askEmail() {
+function askEmail(mismatch) {
   return new Promise((resolve) => {
+    $("confirm-error").textContent = mismatch ? t("err_mismatch") : "";
+    $("confirm-error").hidden = !mismatch;
+    $("confirm-email").value = "";
     show("confirm");
     $("confirm-form").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -103,16 +106,27 @@ async function loadPortal(user) {
   $("stock-ui").hidden = true;
   $("banner").replaceChildren();
   try {
-    const [shopSnap, metaSnap, itemsSnap, priceSnap] = await Promise.all([
+    // Only the brands the admin allowed for this user are requested (the security rules enforce the same list).
+    const keys = (Array.isArray(profile.brands) ? profile.brands : []).filter((k) => /^[a-z0-9]+$/.test(k));
+    const [shopSnap, metaSnap, ...rest] = await Promise.all([
       getDoc(doc(db, "shops", profile.shopId)),
       getDoc(doc(db, "stock", "meta")),
-      getDoc(doc(db, "stock", "items")),
-      getDoc(doc(db, "prices", profile.priceTier))
+      ...keys.map((k) => getDoc(doc(db, "stock", `items__${k}`))),
+      ...keys.map((k) => getDoc(doc(db, "prices", `${profile.priceTier}__${k}`)))
     ]);
+    const itemSnaps = rest.slice(0, keys.length), priceSnaps = rest.slice(keys.length);
     shop = shopSnap.exists() ? shopSnap.data() : { name: profile.shopName, currency: profile.currency };
     meta = metaSnap.exists() ? metaSnap.data() : null;
-    items = itemsSnap.exists() ? (itemsSnap.data().items || []) : [];
-    prices = priceSnap.exists() ? (priceSnap.data().prices || {}) : {};
+    items = []; prices = {}; brands = [];
+    keys.forEach((k, n) => {
+      if (itemSnaps[n].exists()) {
+        const d = itemSnaps[n].data();
+        brands.push({ key: k, name: d.brand || k });
+        for (const it of d.items || []) items.push({ ...it, brand: d.brand || k });
+      }
+      if (priceSnaps[n].exists()) Object.assign(prices, priceSnaps[n].data().prices || {});
+    });
+    brands.sort((a, b) => a.name.localeCompare(b.name));
   } catch (err) {
     console.error("Load error:", err);
     $("app-error").textContent = t("load_err"); $("app-error").hidden = false;
@@ -131,7 +145,7 @@ function fillSelect(sel, firstLabel, values, labelOf) {
 }
 
 function buildFilters() {
-  filters.query = ""; filters.group = ""; filters.size = ""; filters.condition = "";
+  filters.query = ""; filters.brand = ""; filters.group = ""; filters.size = ""; filters.condition = "";
   $("q").value = "";
 }
 
@@ -147,19 +161,34 @@ function renderApp() {
     ...(meta ? [h("span", {}, h("b", { text: t("asof") }), " " + when)] : []),
     h("span", { text: t(note, { cur }) }));
 
-  if (!meta || !items.length) {
-    $("app-error").textContent = t("none_published"); $("app-error").className = "msg msg-info"; $("app-error").hidden = false;
+  const noBrand = !(Array.isArray(profile.brands) && profile.brands.length);
+  if (noBrand || !meta || !items.length) {
+    $("app-error").textContent = t(noBrand ? "no_brands" : "none_published"); $("app-error").className = "msg msg-info"; $("app-error").hidden = false;
     $("stock-ui").hidden = true; return;
   }
   $("app-error").hidden = true; $("app-error").className = "msg msg-error";
   $("stock-ui").hidden = false;
 
-  fillSelect($("size"), t("all_sizes"), presentSizes(items));
-  fillSelect($("cond"), t("all_cond"), presentConditions(items), conditionLabel);
+  // brand chips: only when this user may see more than one brand that has stock
+  if (filters.brand && !brands.some((b) => b.name === filters.brand)) filters.brand = "";
+  const brandBox = $("brand-chips");
+  brandBox.hidden = brands.length < 2;
+  if (brands.length >= 2) {
+    const mkb = (name, label) => {
+      const b = h("button", { class: "chip", type: "button", "aria-pressed": String(filters.brand === name), text: label });
+      b.addEventListener("click", () => { filters.brand = name; renderApp(); });
+      return b;
+    };
+    brandBox.replaceChildren(mkb("", t("all_brands")), ...brands.map((b) => mkb(b.name, b.name)));
+  }
+  const scope = filters.brand ? items.filter((i) => i.brand === filters.brand) : items;
+
+  fillSelect($("size"), t("all_sizes"), presentSizes(scope));
+  fillSelect($("cond"), t("all_cond"), presentConditions(scope), conditionLabel);
   filters.size = $("size").value; filters.condition = $("cond").value;
 
   // group chips
-  const groups = presentGroups(items);
+  const groups = presentGroups(scope);
   if (filters.group && !groups.includes(filters.group)) filters.group = "";
   const mk = (key, label) => {
     const b = h("button", { class: "chip", type: "button", "aria-pressed": String(filters.group === key), text: label });
@@ -181,7 +210,7 @@ function renderList() {
   $("count").textContent = countLabel(shown.length);
   const list = $("list");
   if (!shown.length) { list.replaceChildren(h("div", { class: "empty", text: t("no_results") })); return; }
-  renderStock(list, shown, { prices, currency: profile.currency });
+  renderStock(list, shown, { prices, currency: profile.currency, showBrand: brands.length > 1 });
 }
 
 $("q").addEventListener("input", (e) => { filters.query = e.target.value; renderList(); });

@@ -46,16 +46,34 @@ export function openedFromEmailLink() {
  * Returns null on success, or an error code string.
  */
 export async function completeEmailLink(askEmail) {
-  let email = null;
-  try { email = localStorage.getItem(EMAIL_KEY); } catch (e) { /* ignore */ }
-  if (!email) email = await askEmail();
-  if (!email) return "cancelled";
   try {
-    await signInWithEmailLink(auth, email.trim(), location.href);
-    try { localStorage.removeItem(EMAIL_KEY); } catch (e) { /* ignore */ }
-    return null;
-  } catch (e) {
-    return e && e.code ? e.code : "unknown";
+    // A link always signs in as the person it was sent to. If somebody else is already signed in on this
+    // browser (for example the owner testing a shop's link), sign them out first instead of mixing sessions.
+    if (typeof auth.authStateReady === "function") await auth.authStateReady();
+    if (auth.currentUser) await signOut(auth);
+
+    let email = null;
+    try { email = localStorage.getItem(EMAIL_KEY); } catch (e) { /* ignore */ }
+    if (!email) email = await askEmail(false);
+    if (!email) return "cancelled";
+
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await signInWithEmailLink(auth, email.trim(), location.href);
+        try { localStorage.removeItem(EMAIL_KEY); } catch (e) { /* ignore */ }
+        return null;
+      } catch (e) {
+        const code = e && e.code ? e.code : "unknown";
+        if (code === "auth/invalid-email" && attempt === 0) {
+          // The remembered address is not the one this link was sent to: let the person type the right one.
+          try { localStorage.removeItem(EMAIL_KEY); } catch (err) { /* ignore */ }
+          email = await askEmail(true);
+          if (!email) return "cancelled";
+          continue;
+        }
+        return code;
+      }
+    }
   } finally {
     history.replaceState({}, document.title, location.pathname); // drop the one-time code from the address bar
   }

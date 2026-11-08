@@ -24,9 +24,10 @@ Firestore security rules ([`firestore.rules`](firestore.rules)) are what protect
 |---|---|
 | `users/<email>` (an invitation) | the admin, and that person for their own record |
 | `shops/<id>` | the admin, and users of that shop |
-| `stock/*` (lines, no prices, no location) | admin and any invited, active user |
-| `prices/<TIER>` e.g. `SHOP_CAD` | admin, and only users whose invitation names that tier |
-| `admin/*` (warehouse locations) | admin only |
+| `stock/meta` (date, contact) | admin and any invited, active user |
+| `stock/items__<brand>` (lines, no prices, no location) | admin, and only users whose invitation lists that brand |
+| `prices/<TIER>__<brand>` e.g. `SHOP_CAD__skitrab` | admin, and only users whose invitation names that tier **and** that brand |
+| `admin/*` (warehouse locations, brand list, upload details) | admin only |
 | everything else | nobody |
 
 ## Everyday use
@@ -43,12 +44,29 @@ A price ending in `.99` is shown with an "est." tag. Items without a current-sea
 Demo, Old graphics and Defect items also show "Price on request" until clearance pricing is added (phase 3).
 
 ### Add or change a shop
-Admin page → **Shops**: name, currency, price type (Shop / Retail / Export), language, up to 3 addresses,
+Admin page → **Shops**: name, currency, price type (Shop / Retail / Export), language, **brands**, up to 3 addresses,
 and the email addresses allowed to sign in. Save, then press **Send sign-in email** next to each address.
 A shop can have several users; each user keeps their own language choice.
 
+### Brands
+- A shop must have at least one brand ticked; its users only ever receive those brands (enforced by the security rules, not just hidden).
+- A user can have their own list: set **Brands: custom** on that user (marked `*` in the shop list). Default is "same as shop".
+- Users who may see more than one brand get brand filter chips and the brand name on each card.
+- **Where the brand comes from:** the `Brand` column of the **Catalogue** sheet, matched through the barcode. Stock lines that
+  have no catalogue match use `brandRules` in `tools/portal-settings.json` (for example any description starting with
+  `VILLACAMPA`), otherwise `defaultBrand`. The export report lists every item whose brand was assumed.
+- **New brand:** add its lines to the Catalogue sheet with the brand name in the `Brand` column, export, publish, then tick it on the shops that may see it.
+  Two names that differ only by punctuation or case (for example `SkiTrab` and `Ski-Trab`) are refused.
+- A brand with a different season numbering can be given its own season in `seasonByBrand`.
+
 ### New season
 Edit `currentSeasonCode` and `currentSeasonLabel` in `tools/portal-settings.json`, then export again.
+
+### Updating the site or the rules (order matters when the data model changes)
+1. Commit and push the site files (GitHub Desktop) and wait for Pages to update.
+2. Deploy the rules: `firebase deploy --only firestore --project m-dealer-portal`
+   (`--dry-run` first checks them without releasing anything).
+3. Admin page: publish the stock again; if shops show "not set", press **Give them SkiTrab** once.
 
 ## One-time setup (already done for this project unless noted)
 
@@ -86,7 +104,7 @@ firestore.rules         security rules      firebase.json, .firebaserc   Firebas
 
 ## Roadmap
 
-1. **Phase 1 (this):** sign-in, shops and users, stock page, export + upload.
+1. **Phase 1 (this):** sign-in, shops and users, stock page, export + upload, per-shop and per-user brand access.
 2. **Phase 2:** quote requests that reserve stock for 7 days, emails, request management.
 3. **Phase 3:** price lists and catalogs per currency, product images, clearance pricing.
 4. **Phase 4:** automation (CDEC shipment email, invoice drafting, ledger).
