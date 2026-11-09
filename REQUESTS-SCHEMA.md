@@ -19,15 +19,15 @@ Fields never change meaning within a schema version; new fields may be added. `s
   "createdAt": "2026-11-08T15:00:00.000Z",
   "expiresAt": "2026-11-15T15:00:00.000Z",
   "shop": {
-    "id": "s1", "name": "Cycle et Ski Bilodeau",
-    "customerId": "C008", "country": "Canada", "province": "QC", "taxMode": "QC",
-    "billTo": "343 Rue Principale\nEastman QC J0E 1P0",
-    "addresses": [ { "label": "Magasin", "text": "343 Rue Principale\nEastman QC" } ]
+    "id": "s1", "name": "Example Ski Shop",
+    "customerId": "C999", "country": "Canada", "province": "QC", "taxMode": "QC",
+    "billTo": "100 Example Street\nSpringfield QC A1A 1A1",
+    "addresses": [ { "label": "Store", "text": "100 Example Street\nSpringfield QC" } ]
   },
-  "contact": { "email": "buyer@bilodeau.test", "language": "fr" },
+  "contact": { "email": "buyer@example.test", "language": "fr" },
   "currency": "CAD",
   "priceTier": "SHOP_CAD",
-  "shipTo": { "label": "Entrepôt", "text": "12 Chemin du Lac\nMagog QC" },
+  "shipTo": { "label": "Warehouse", "text": "5 Sample Road\nSpringfield QC" },
   "po": "PO-2026-114",
   "notes": "Free text from the shop",
   "shipDate": "2026-11-25",

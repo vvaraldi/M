@@ -5,6 +5,8 @@ The data format is in [REQUESTS-SCHEMA.md](REQUESTS-SCHEMA.md). This page says *
 
 Items marked **TO CONFIRM** are proposals that the owner has not confirmed yet. Ask before relying on them.
 
+Read with: [REQUESTS-SCHEMA.md](REQUESTS-SCHEMA.md) (data format) and `..\SKITRAB-WORKBOOK-REFERENCE.md` (in the `Sharable info` folder, outside this repo because it names customers: workbook structure, stock rules, how to write to the workbook safely, ledger conventions).
+
 ## 1. Where a request comes from
 - Every new request is emailed to the owner. The **plain-text part is complete** (customer, order details, one block per item) and **ends with the full JSON**. The same JSON is attached as `R-xxxx.json`, and a CSV as `R-xxxx.csv`.
 - The Admin page → Requests can also download one request, or **all open requests** in one JSON file.
@@ -78,3 +80,14 @@ Other statuses: `expired` (the hold ended by itself), `cancelled` (the shop canc
 
 ## 9. Still to be built
 The shipment email to CDEC, the invoice draft and the ledger entry follow this page. Add the rule for section 4 and any change you decide here, so every assistant works the same way.
+
+## 10. Proposed additions (TO CONFIRM — from the review of test requests R-0007 to R-0012, 2026-11-08)
+1. **Customer mismatch (red flag).** `shop.customerId` is found but the name or email differs from the workbook's Customers row → stop and ask (the test requests used "Test shop" with C003, which is a different shop in the workbook).
+2. **New customer defaults.** The Customers sheet also has Type, Phone, Terms, Notes, Active. Terms need a default for a new shop (Vincent's usual shop terms: "100% of this payment is due prior to shipping the goods."); Type = Shop for portal shops; Active = 1.
+3. **Catalogue line choice.** Ski Trab reuses barcodes and one barcode can be on several catalogue lines (one per price season, e.g. NEVE 181 on the 22-23 and 23-24 lines). Match `sku` + `code` + `size`; take the line valid for the current season, otherwise the latest season.
+4. **Price on the invoice.** Use the request's `unitPrice` (what the shop saw). If it differs from the workbook's catalogue price for that line, flag it to the owner.
+5. **Condition and warehouse on the line.** The invoice line's Condition must be exactly the stock condition (`New`, `Demo`, `Old graphics`…) and From stock = the warehouse (`Eastman` / `CDEC`), because the Stock sheet matches sales by Location¦Condition¦SKU. Lines priced by the owner for Demo / Old graphics also get that rebate reason.
+6. **Split lines.** A line served from both warehouses becomes two invoice lines, one per warehouse.
+7. **Shipping.** Shipping cost is not in the request; the owner sets it (ask).
+8. **Who does what in section 6.** The assistant can create the Draft invoice in the workbook file (Excel closed, latest saved copy, read back after writing). The owner does steps 2–4: open Excel (the Stock sheet refreshes), save, export, upload, then "Mark invoiced".
+9. **What may be written.** A draft invoice writes to Invoices, Lines and (for a new customer) Customers only. Stock moves only on the owner's explicit instruction.

@@ -1,7 +1,8 @@
 # This repository is PUBLIC and holds code only.
 # Never commit business data, workbooks, keys or passwords.
 
-# Business files
+# Business files (the workbook reference names customers: it lives one folder above this repo, and must never be added here)
+SKITRAB-WORKBOOK-REFERENCE*.md
 *.xlsm
 *.xlsx
 *.xls

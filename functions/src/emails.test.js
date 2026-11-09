@@ -7,7 +7,7 @@ const NOW = new Date("2026-11-08T15:00:00Z");
 function sample(lang = "fr", over = {}) {
   const r = planSubmit({
     user: { email: "buyer@shop.test", active: true, shopId: "s1", brands: ["skitrab"], currency: "CAD", priceTier: "SHOP_CAD", language: lang },
-    shop: { name: "Shop <One> & Co", currency: "CAD", addresses: [{ label: "Store", text: "1 Main St\nEastman QC" }] },
+    shop: { name: "Shop <One> & Co", currency: "CAD", addresses: [{ label: "Store", text: "1 Main St\nSpringfield QC" }] },
     input: { lines: [{ brandKey: "skitrab", itemId: "a1", qty: 2 }, { brandKey: "skitrab", itemId: "n1", qty: 1 }, { brandKey: "skitrab", itemId: "m1", qty: 10 }], addressIndex: 0, po: "PO-9", notes: "Call <b>me</b>", shipDate: "2026-11-20", ...over },
     itemsDocs: { skitrab: { brand: "SkiTrab", items: [
       { id: "a1", code: "13216", sku: "805", description: "GARA PLUS", size: "162", condition: "New", unit: "pair", available: 5, minQty: 1 },
@@ -122,7 +122,7 @@ test("export includes customer details, per-warehouse stock and what the portal 
 test("CSV is spreadsheet-safe: BOM, quoting, one row per line", () => {
   const { request, priv } = sample("en"); const csv = requestCsv(request, priv);
   assert.ok(csv.startsWith("﻿request,shop,")); assert.equal(csv.trim().split("\r\n").length, 4);
-  assert.ok(csv.includes('"Shop <One> & Co"') === false || true); assert.ok(csv.includes("Eastman QC") || csv.includes("1 Main St / Store") || csv.includes("Store / 1 Main St, Eastman QC"));
+  assert.ok(csv.includes('"Shop <One> & Co"') === false || true); assert.ok(csv.includes("Springfield QC") || csv.includes("1 Main St / Store") || csv.includes("Store / 1 Main St, Springfield QC"));
   const q = requestCsv({ ...request, shopName: 'A "quoted", name' }, priv); assert.ok(q.includes('"A ""quoted"", name"'));
 });
 
