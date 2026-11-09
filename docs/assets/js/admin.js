@@ -9,6 +9,11 @@ import { h } from "./render.js";
 import { setLang, dateLabel, money } from "./i18n.js";
 import { createStockView } from "./stockview.js";
 import { exportShape, requestCsv } from "./requestexport.js";
+import { normCountry, normProvince, COUNTRIES, PROVINCES } from "./customer.js";
+
+// suggestions for the country and province fields (the workbook's own spellings)
+document.getElementById("dl-country").replaceChildren(...COUNTRIES.map((c) => h("option", { value: c })));
+document.getElementById("dl-prov").replaceChildren(...PROVINCES.map((p) => h("option", { value: p })));
 
 const $ = (id) => document.getElementById(id);
 const show = (name) => ["loading", "noaccess", "app"].forEach((v) => { $("view-" + v).hidden = v !== name; });
@@ -241,7 +246,7 @@ $("shop-form").addEventListener("submit", async (e) => {
   if (customerId && !/^[A-Z0-9-]{1,12}$/.test(customerId)) { dlgError("The workbook customer number should look like C008."); return; }
   const dup = Object.entries(shopsPriv).find(([id, v]) => customerId && v.customerId === customerId && id !== editing.id);
   if (dup) { const other = shops.find((s) => s.id === dup[0]); dlgError(`${customerId} is already used by ${other ? other.name : "another shop"}.`); return; }
-  const priv = { customerId, taxMode: $("f-tax").value, country: $("f-country").value.trim(), province: $("f-prov").value.trim(), billTo: $("f-bill").value.trim() };
+  const priv = { customerId, taxMode: $("f-tax").value, country: normCountry($("f-country").value), province: normProvince($("f-prov").value), billTo: $("f-bill").value.trim() };
   const addresses = [0, 1, 2].map((i) => ({ label: $(`a-label-${i}`).value.trim(), text: $(`a-text-${i}`).value.trim() })).filter((a) => a.text);
   const active = $("f-active").checked, language = $("f-lang").value;
   const ref = editing.id ? doc(db, "shops", editing.id) : doc(collection(db, "shops"));

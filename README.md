@@ -73,6 +73,7 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 - Day 5: the shop gets a reminder. Day 7: the hold ends automatically (hourly job) and the items become available again.
 - A shop can cancel its request from **History** (you get an email). You can, in Admin → **Requests**:
   **Extend 7 days**, **Release**, **Cancel**, or **Mark invoiced** (releases the hold; do it when the invoice exists in Excel and the stock was re-published).
+- For assistants and scripts that process requests (customer matching, invoice lines, the order of operations), see [AUTOMATION-PLAYBOOK.md](AUTOMATION-PLAYBOOK.md).
 - Download any request as JSON or CSV (format in [REQUESTS-SCHEMA.md](REQUESTS-SCHEMA.md)); **Download all open requests** gives one JSON file for your automations.
 - Admin → **Shop view** shows exactly what a chosen shop or user sees (brands, prices, language, reservations).
 

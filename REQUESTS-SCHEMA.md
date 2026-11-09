@@ -1,5 +1,9 @@
 # Request export format (schema 1)
 
+The owner's email for each request is complete on its own: the plain-text part lists the customer (workbook number, tax mode,
+region, billing address), the order details (PO, ship date, ship to, notes) and every line with its barcode, condition, stock per warehouse and
+what the portal already holds, and ends with this same JSON in full. The HTML part shows the same and the JSON is also attached as a file.
+
 Every quote request can be downloaded from the portal Admin page (tab **Requests**, button *Download JSON* or *CSV*),
 and each new request is emailed to the owner with the same JSON and CSV attached. Other tools (a shipment email to the
 CDEC warehouse, invoice drafting, ledger entry) should read **this** format. It is produced by the same code in the
@@ -39,7 +43,8 @@ Fields never change meaning within a schema version; new fields may be added. `s
         "Eastman": { "onHand": 1, "reserved": 0, "available": 1 },
         "CDEC":    { "onHand": 6, "reserved": 2, "available": 4 }
       },
-      "heldByPortal": 3
+      "heldByPortal": 3,
+      "heldByThisRequest": 2
     }
   ],
   "subtotal": 1429.94,
@@ -65,7 +70,10 @@ Fields never change meaning within a schema version; new fields may be added. `s
 | `stockAsOf` | When the Stock sheet was refreshed for the upload that this request's stock numbers come from. If it is old, trust the numbers less. |
 | `lines[].locations` | **Owner only.** *Available* quantity per warehouse (`Eastman`, `CDEC`) when the request was sent. A snapshot, not an allocation: decide which warehouse ships. |
 | `lines[].stock` | **Owner only.** Per warehouse: `onHand` (physical count), `reserved` (held by draft invoices in the workbook) and `available` (= onHand − reserved). Use `reserved` to avoid counting a pair twice when it is already on a draft invoice. |
-| `lines[].heldByPortal` | Total quantity of this item held by open portal requests after this one (this request included). Portal holds are separate from `stock.reserved`. `null` for requests made before this field existed. |
+| `lines[].heldByThisRequest` | This request's own portal hold for the item: always equal to `qty`. |
+| `lines[].heldByPortal` | Total quantity of this item held in the portal by **all open requests**, this one included (not just this request's own hold: see `heldByThisRequest`). Portal holds are separate from `stock.reserved`, which the workbook sees. `null` for requests made before this field existed. |
+
+What to do with a request, step by step, is in [AUTOMATION-PLAYBOOK.md](AUTOMATION-PLAYBOOK.md).
 | `subtotal` | Sum of the priced lines, before tax. Add the lines with `priceTbd` yourself. |
 
 Taxes are never included: the invoice adds them from the customer's tax mode.
@@ -74,7 +82,7 @@ Taxes are never included: the invoice adds them from the customer's tax mode.
 
 One row per line, UTF-8 with a BOM so Excel opens it correctly. Columns: `request, shop, contact, currency, po, ship_to,
 brand, code, barcode, description, size, color, condition, qty, unit, unit_price, line_total, price_tbd, eastman, cdec,
-customer_id, province, tax_mode, eastman_on_hand, eastman_reserved, eastman_available, cdec_on_hand, cdec_reserved, cdec_available, held_by_portal`.
+customer_id, province, tax_mode, eastman_on_hand, eastman_reserved, eastman_available, cdec_on_hand, cdec_reserved, cdec_available, held_by_portal, held_by_this_request`.
 Requests created before these fields existed leave them empty.
 
 ## Where requests live (for developers)

@@ -11,6 +11,8 @@ export function money(v, currency, lang = "en") {
 }
 export const dateLong = (d, lang = "en") => new Intl.DateTimeFormat(LOC[lang] || "en-CA", { dateStyle: "long", timeZone: TZ }).format(d);
 export const dateTime = (d, lang = "en") => new Intl.DateTimeFormat(LOC[lang] || "en-CA", { dateStyle: "medium", timeStyle: "short", timeZone: TZ }).format(d);
+/** "November 15, 2026 at 9:51 p.m." in Toronto time: the exact moment a hold ends. */
+export const dateTimeLong = (d, lang = "en") => new Intl.DateTimeFormat(LOC[lang] || "en-CA", { dateStyle: "long", timeStyle: "short", timeZone: TZ }).format(d);
 
 /** True when nothing in the request has a price yet: the subtotal is then "to be confirmed", not $0.00. */
 const allTbd = (r) => !!r.hasTbd && !(r.subtotal > 0);
@@ -112,7 +114,7 @@ export function exportShape(r, priv) {
     lines: r.lines.map((l) => ({
       brand: l.brand, code: l.code, sku: l.sku, description: l.description, size: l.size, color: l.color, condition: l.condition, unit: l.unit,
       qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, priceTbd: !!l.priceTbd, estimatedPrice: !!l.est,
-      locations: loc[l.itemId] || {}, stock: stock[l.itemId] || {}, heldByPortal: held[l.itemId] ?? null
+      locations: loc[l.itemId] || {}, stock: stock[l.itemId] || {}, heldByPortal: held[l.itemId] ?? null, heldByThisRequest: l.qty
     })),
     subtotal: r.subtotal, hasPriceTbd: !!r.hasTbd
   };
@@ -122,34 +124,74 @@ const csvCell = (v) => { const s = v == null ? "" : String(v); return /[",\n;]/.
 export function requestCsv(r, priv) {
   const x = exportShape(r, priv);
   const head = ["request", "shop", "contact", "currency", "po", "ship_to", "brand", "code", "barcode", "description", "size", "color", "condition", "qty", "unit", "unit_price", "line_total", "price_tbd", "eastman", "cdec",
-    "customer_id", "province", "tax_mode", "eastman_on_hand", "eastman_reserved", "eastman_available", "cdec_on_hand", "cdec_reserved", "cdec_available", "held_by_portal"];
+    "customer_id", "province", "tax_mode", "eastman_on_hand", "eastman_reserved", "eastman_available", "cdec_on_hand", "cdec_reserved", "cdec_available", "held_by_portal", "held_by_this_request"];
   const shipTo = x.shipTo ? [x.shipTo.label, x.shipTo.text].filter(Boolean).join(" / ").replace(/\n/g, ", ") : "";
   const rows = x.lines.map((l) => [x.number, x.shop.name, x.contact.email, x.currency, x.po, shipTo, l.brand, l.code, l.sku, l.description, l.size, l.color, l.condition, l.qty, l.unit,
     l.unitPrice, l.lineTotal, l.priceTbd ? "yes" : "", l.locations.Eastman || 0, l.locations.CDEC || 0,
     x.shop.customerId, x.shop.province, x.shop.taxMode,
-    ...["Eastman", "CDEC"].flatMap((w) => { const s = l.stock[w] || {}; return [s.onHand ?? "", s.reserved ?? "", s.available ?? ""]; }), l.heldByPortal ?? ""]);
+    ...["Eastman", "CDEC"].flatMap((w) => { const s = l.stock[w] || {}; return [s.onHand ?? "", s.reserved ?? "", s.available ?? ""]; }), l.heldByPortal ?? "", l.heldByThisRequest]);
   return "﻿" + [head, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
 
-/** Copy of a new request for the owner, in English, with CSV and JSON attached. */
+const WAREHOUSES = ["Eastman", "CDEC"];
+/** One short sentence per warehouse: on hand, held by Excel draft invoices, available (falls back to the available-only number). */
+function stockParts(l) {
+  return WAREHOUSES.map((w) => {
+    const s = (l.stock || {})[w];
+    if (s) return `${w}: ${s.onHand} on hand, ${s.reserved} on drafts, ${s.available} available`;
+    if ((l.locations || {})[w]) return `${w}: ${l.locations[w]} available`;
+    return null;
+  }).filter(Boolean);
+}
+
+/** The owner's copy as plain text: complete on its own (customer, order details, barcodes, stock, and the full JSON at the end). */
+function ownerText(x, r, expiresLong) {
+  const sh = x.shop, money_ = (v) => money(v, x.currency, "en");
+  const out = [];
+  out.push(`NEW REQUEST ${x.number}`, `Held until ${expiresLong} (unless confirmed or extended before then, the pairs go back to available)`, "");
+  out.push("CUSTOMER");
+  out.push(`  Shop:      ${sh.name}   (portal id ${sh.id})`);
+  out.push(`  Workbook:  customer no. ${sh.customerId || "(not set yet)"} · tax mode ${sh.taxMode || "(not set)"}`);
+  out.push(`  Region:    ${[sh.province, sh.country].filter(Boolean).join(", ") || "(not set)"}`);
+  if (sh.billTo) out.push(`  Billing:   ${sh.billTo.replace(/\n/g, ", ")}`);
+  out.push(`  Contact:   ${x.contact.email} (language ${x.contact.language})`);
+  out.push(`  Prices:    ${x.priceTier}, ${x.currency}`, "");
+  out.push("ORDER");
+  out.push(`  PO number:           ${x.po || "-"}`);
+  out.push(`  Requested ship date: ${x.shipDate || "-"}`);
+  out.push(`  Ship to:             ${x.shipTo ? [x.shipTo.label, x.shipTo.text].filter(Boolean).join(" / ").replace(/\n/g, ", ") : "(no address on file)"}`);
+  out.push(`  Notes:               ${x.notes ? x.notes.replace(/\n/g, " / ") : "-"}`, "");
+  out.push(`LINES  (stock as of ${x.stockAsOf || "unknown"}; "on drafts" = held by draft invoices in the workbook)`);
+  x.lines.forEach((l, i) => {
+    out.push(`${i + 1}. [${l.brand}] ${l.code || "(no code)"}  ${l.description} ${l.size}${l.color ? " " + l.color : ""}  (${l.condition})`);
+    out.push(`   barcode ${l.sku || "-"} · qty ${l.qty} ${l.unit} · ${l.priceTbd ? "price TBD (to be priced on the invoice)" : `${money_(l.unitPrice)}${l.unit === "m" ? " / m" : ""}${l.estimatedPrice ? " (estimate)" : ""} = ${money_(l.lineTotal)}`}`);
+    const parts = stockParts(l);
+    out.push(`   ${parts.length ? parts.join("  |  ") : "no stock detail for this item"}`);
+    out.push(`   portal holds: this request ${l.heldByThisRequest} · all open portal requests together ${l.heldByPortal ?? "unknown"} (the workbook does not see these holds)`);
+  });
+  out.push("", `Subtotal (before tax): ${subtotalText(r, "to be priced", "en")}${x.hasPriceTbd && !allTbd(r) ? " + lines still to price" : ""}`);
+  out.push("", "----- FULL REQUEST AS JSON (schema 1, same as the attached file) -----", JSON.stringify(x, null, 2));
+  return out.join("\n");
+}
+
+/** Copy of a new request for the owner, in English: complete in the text part, with CSV and JSON attached. */
 export function buildOwnerEmail(r, priv) {
   const x = exportShape(r, priv), cdec = x.lines.filter((l) => (l.locations.CDEC || 0) > 0).length;
-  const rows = x.lines.map((l) => `<tr><td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.brand)}</td><td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.code)}</td>
-<td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.description)} ${esc(l.size)} ${l.condition !== "New" ? `<i>(${esc(l.condition)})</i>` : ""}</td>
+  const rows = x.lines.map((l) => `<tr><td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.brand)}</td><td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.code)}<br><span style="color:#5a6f7a;font-size:11px">${esc(l.sku || "no barcode")}</span></td>
+<td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.description)} ${esc(l.size)}${l.color ? " " + esc(l.color) : ""} <i>(${esc(l.condition)})</i></td>
 <td style="padding:5px 8px;border-bottom:1px solid #e8ebec;text-align:right">${l.qty} ${esc(l.unit)}</td>
 <td style="padding:5px 8px;border-bottom:1px solid #e8ebec;text-align:right">${l.priceTbd ? "<b>TBD</b>" : esc(money(l.lineTotal, x.currency, "en"))}</td>
-<td style="padding:5px 8px;border-bottom:1px solid #e8ebec">E ${l.locations.Eastman || 0} · C ${l.locations.CDEC || 0}</td></tr>`).join("");
+<td style="padding:5px 8px;border-bottom:1px solid #e8ebec;font-size:12px">${stockParts(l).map(esc).join("<br>") || "no stock detail"}<br><span style="color:#5a6f7a">portal holds: this request ${l.heldByThisRequest} · all open requests ${l.heldByPortal ?? "?"}</span></td></tr>`).join("");
   const html = shell(`<h2 style="margin:0 0 8px">New request ${esc(x.number)}</h2>
 <p style="margin:2px 0"><b>${esc(x.shop.name)}</b> · ${esc(x.contact.email)} · ${esc(x.currency)}</p>
 <p style="margin:2px 0;color:#5a6f7a">Customer ${esc(x.shop.customerId || "(no workbook number yet)")} · tax mode ${esc(x.shop.taxMode || "not set")}${x.shop.province ? " · " + esc(x.shop.province) : ""}${x.shop.country ? ", " + esc(x.shop.country) : ""}</p>
-<p style="margin:2px 0">Held until <b>${esc(dateLong(r.expiresAt, "en"))}</b>${cdec ? ` · <b>${cdec}</b> line(s) with stock at CDEC` : ""}</p>
+<p style="margin:2px 0">Held until <b>${esc(dateTimeLong(r.expiresAt, "en"))}</b> (Toronto time)${cdec ? ` · <b>${cdec}</b> line(s) with stock at CDEC` : ""}</p>
 ${details(r, T.en, "en")}
-<table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:10px"><thead><tr style="background:#004D71;color:#fff"><th style="padding:6px 8px;text-align:left">Brand</th><th style="padding:6px 8px;text-align:left">Code</th><th style="padding:6px 8px;text-align:left">Item</th><th style="padding:6px 8px;text-align:right">Qty</th><th style="padding:6px 8px;text-align:right">Total</th><th style="padding:6px 8px;text-align:left">Stock E=Eastman C=CDEC</th></tr></thead><tbody>${rows}</tbody></table>
+<table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:10px"><thead><tr style="background:#004D71;color:#fff"><th style="padding:6px 8px;text-align:left">Brand</th><th style="padding:6px 8px;text-align:left">Code / barcode</th><th style="padding:6px 8px;text-align:left">Item</th><th style="padding:6px 8px;text-align:right">Qty</th><th style="padding:6px 8px;text-align:right">Total</th><th style="padding:6px 8px;text-align:left">Stock by warehouse (as of ${esc(x.stockAsOf || "unknown")})</th></tr></thead><tbody>${rows}</tbody></table>
 <p style="margin-top:10px"><b>Subtotal (before tax): ${esc(subtotalText(r, "to be priced", "en"))}</b>${x.hasPriceTbd && !allTbd(r) ? " <span style=\"color:#8a5a00\">+ lines to price (TBD)</span>" : ""}</p>
-<p style="color:#5a6f7a;font-size:12px">CSV and JSON attached. Manage it in the portal Admin page, tab Requests.</p>`);
-  const text = `New request ${x.number} from ${x.shop.name} (${x.contact.email})\nHeld until ${dateLong(r.expiresAt, "en")}\n\n` +
-    x.lines.map((l) => `- [${l.brand}] ${l.code} ${l.description} ${l.size}: ${l.qty} ${l.unit}${l.priceTbd ? " (price TBD)" : " = " + money(l.lineTotal, x.currency, "en")}  [Eastman ${l.locations.Eastman || 0}, CDEC ${l.locations.CDEC || 0}]`).join("\n") +
-    `\n\nSubtotal (before tax): ${subtotalText(r, "to be priced", "en")}${x.hasPriceTbd && !allTbd(r) ? " + lines to price" : ""}`;
+<p style="color:#5a6f7a;font-size:12px">"on drafts" = held by draft invoices in the workbook. "portal holds" = pairs reserved in the portal only (not visible in the workbook): by this request, and by all open requests together. CSV and JSON are attached and the full JSON is below. Manage the request in the portal Admin page, tab Requests.</p>
+<pre style="background:#f3f5f6;border:1px solid #d1d3d4;padding:10px;font-size:11px;white-space:pre-wrap;word-break:break-word">${esc(JSON.stringify(x, null, 2))}</pre>`);
+  const text = ownerText(x, r, dateTimeLong(r.expiresAt, "en") + " Toronto time");
   return {
     subject: `New request ${x.number}: ${x.shop.name} (${x.lines.length} line${x.lines.length === 1 ? "" : "s"}, ${allTbd(r) ? "price TBD" : money(x.subtotal, x.currency, "en") + (x.hasPriceTbd ? " + TBD" : "")})`,
     html, text,

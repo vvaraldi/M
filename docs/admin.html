@@ -149,8 +149,10 @@
         <div class="grid2">
           <div class="field"><label for="f-custid">Workbook customer no.</label><input id="f-custid" placeholder="C008" maxlength="12" autocomplete="off"></div>
           <div class="field"><label for="f-tax">Tax mode</label><select id="f-tax"><option value="">(not set)</option><option value="QC">QC (TPS + TVQ)</option><option value="GST">GST (TPS only)</option><option value="None">None (export, no tax)</option><option value="Manual">Manual</option></select></div>
-          <div class="field"><label for="f-country">Country</label><input id="f-country" maxlength="60" placeholder="Canada"></div>
-          <div class="field"><label for="f-prov">Province / state</label><input id="f-prov" maxlength="60" placeholder="QC"></div>
+          <div class="field"><label for="f-country">Country</label><input id="f-country" maxlength="60" placeholder="Canada" list="dl-country" autocomplete="off">
+            <datalist id="dl-country"></datalist></div>
+          <div class="field"><label for="f-prov">Province / state</label><input id="f-prov" maxlength="60" placeholder="QC" list="dl-prov" autocomplete="off">
+            <datalist id="dl-prov"></datalist><span class="hint">Same spelling as your Customers sheet (QC, AB, BC, ON…). It is tidied automatically; the workbook leaves it blank for the USA.</span></div>
         </div>
         <div class="field" style="margin-bottom:0"><label for="f-bill">Billing address</label><textarea id="f-bill" rows="3" maxlength="300"></textarea></div>
       </div>

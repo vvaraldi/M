@@ -20,7 +20,7 @@ export function exportShape(r, priv) {
     lines: r.lines.map((l) => ({
       brand: l.brand, code: l.code, sku: l.sku, description: l.description, size: l.size, color: l.color, condition: l.condition, unit: l.unit,
       qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, priceTbd: !!l.priceTbd, estimatedPrice: !!l.est,
-      locations: loc[l.itemId] || {}, stock: stock[l.itemId] || {}, heldByPortal: held[l.itemId] ?? null
+      locations: loc[l.itemId] || {}, stock: stock[l.itemId] || {}, heldByPortal: held[l.itemId] ?? null, heldByThisRequest: l.qty
     })),
     subtotal: r.subtotal, hasPriceTbd: !!r.hasTbd
   };
@@ -30,11 +30,11 @@ const csvCell = (v) => { const s = v == null ? "" : String(v); return /[",\n;]/.
 export function requestCsv(r, priv) {
   const x = exportShape(r, priv);
   const head = ["request", "shop", "contact", "currency", "po", "ship_to", "brand", "code", "barcode", "description", "size", "color", "condition", "qty", "unit", "unit_price", "line_total", "price_tbd", "eastman", "cdec",
-    "customer_id", "province", "tax_mode", "eastman_on_hand", "eastman_reserved", "eastman_available", "cdec_on_hand", "cdec_reserved", "cdec_available", "held_by_portal"];
+    "customer_id", "province", "tax_mode", "eastman_on_hand", "eastman_reserved", "eastman_available", "cdec_on_hand", "cdec_reserved", "cdec_available", "held_by_portal", "held_by_this_request"];
   const shipTo = x.shipTo ? [x.shipTo.label, x.shipTo.text].filter(Boolean).join(" / ").replace(/\n/g, ", ") : "";
   const rows = x.lines.map((l) => [x.number, x.shop.name, x.contact.email, x.currency, x.po, shipTo, l.brand, l.code, l.sku, l.description, l.size, l.color, l.condition, l.qty, l.unit,
     l.unitPrice, l.lineTotal, l.priceTbd ? "yes" : "", l.locations.Eastman || 0, l.locations.CDEC || 0,
     x.shop.customerId, x.shop.province, x.shop.taxMode,
-    ...["Eastman", "CDEC"].flatMap((w) => { const s = l.stock[w] || {}; return [s.onHand ?? "", s.reserved ?? "", s.available ?? ""]; }), l.heldByPortal ?? ""]);
+    ...["Eastman", "CDEC"].flatMap((w) => { const s = l.stock[w] || {}; return [s.onHand ?? "", s.reserved ?? "", s.available ?? ""]; }), l.heldByPortal ?? "", l.heldByThisRequest]);
   return "﻿" + [head, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
