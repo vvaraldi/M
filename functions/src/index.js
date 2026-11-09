@@ -62,6 +62,8 @@ async function sendMail(to, msg) {
   });
 }
 const settledStatus = (r) => (r.status === "fulfilled" ? "sent" : "failed");
+/** Short, safe description of an email error (never contains the password). */
+const errText = (e) => `${(e && (e.code || e.responseCode)) || ""} ${(e && (e.response || e.message)) || e}`.trim().replace(/\s+/g, " ").slice(0, 300);
 
 // ---------------------------------------------------------------- submitRequest
 // invoker "public": the web page calls the function directly; the sign-in is checked INSIDE (authedEmail) and by the rules.
@@ -118,7 +120,10 @@ export const submitRequest = onCall({ region: REGION, cors: CORS, invoker: "publ
     sendMail(request.userEmail, buildShopEmail(request))
   ]);
   results.forEach((r) => { if (r.status === "rejected") logger.error("Email failed for " + request.number, r.reason); });
-  await db.doc(`requests/${request.number}`).update({ emails: { owner: settledStatus(results[0]), shop: settledStatus(results[1]) } }).catch(() => {});
+  const firstError = results.find((r) => r.status === "rejected");
+  await db.doc(`requests/${request.number}`).update({
+    emails: { owner: settledStatus(results[0]), shop: settledStatus(results[1]), error: firstError ? errText(firstError.reason) : "" }
+  }).catch(() => {});
   return { number: request.number, status: request.status, expiresAt: request.expiresAt.toISOString(), emailed: settledStatus(results[1]) === "sent" };
 });
 
@@ -165,6 +170,27 @@ export const updateRequest = onCall({ region: REGION, cors: CORS, invoker: "publ
     }).catch((e) => logger.error("Owner cancel mail failed", e));
   }
   return { id, status: res.patch.status || res.request.status, expiresAt: (res.patch.expiresAt || res.request.expiresAt).toISOString() };
+});
+
+// ---------------------------------------------------------------- email check (owner only)
+// Sends a test email to the owner and reports the exact reason when it fails, so the setup can be checked
+// from the Admin page without reading logs. It also reports how many characters the stored password has
+// (an app password has 16) but never the password itself.
+export const sendTestEmail = onCall({ region: REGION, cors: CORS, invoker: "public", secrets: [GMAIL_APP_PASSWORD], maxInstances: 2 }, async (req) => {
+  const email = authedEmail(req);
+  if (email !== OWNER_EMAIL) throw new HttpsError("permission-denied", "Only the portal owner can do this.");
+  const secretLength = GMAIL_APP_PASSWORD.value().replace(/\s+/g, "").length;
+  try {
+    const info = await sendMail(OWNER_EMAIL, {
+      subject: "M portal: test email",
+      text: "This is a test from the M dealer portal. If you can read it, request emails will work.",
+      html: "<p>This is a test from the <b>M dealer portal</b>. If you can read it, request emails will work.</p>"
+    });
+    return { ok: true, accepted: info.accepted || [], secretLength };
+  } catch (e) {
+    logger.error("Test email failed", e);
+    return { ok: false, error: errText(e), secretLength };
+  }
 });
 
 // ---------------------------------------------------------------- housekeeping

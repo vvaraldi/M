@@ -474,6 +474,24 @@ $("req-filters").addEventListener("click", (e) => {
 });
 $("req-refresh").addEventListener("click", loadRequests);
 
+// Email check: the Cloud Function sends a test message and reports the exact error if Gmail refuses it.
+$("mail-test").addEventListener("click", async () => {
+  const out = $("mail-result"), btn = $("mail-test");
+  btn.disabled = true; out.className = "msg msg-info"; out.textContent = "Sending a test email…"; out.hidden = false;
+  try {
+    const r = await callFn("sendTestEmail", {});
+    if (r.ok) { out.className = "msg msg-ok"; out.textContent = `Sent to ${ADMIN_EMAIL}. Check your inbox (and spam). Request emails will work.`; }
+    else {
+      out.className = "msg msg-error";
+      const hint = r.secretLength !== 16 ? ` The saved password has ${r.secretLength} characters but a Google app password has 16: set it again with "firebase functions:secrets:set GMAIL_APP_PASSWORD" and deploy the functions.` : "";
+      out.textContent = `The email could not be sent: ${String(r.error || "unknown error").replace(/[.\s]+$/, "")}.${hint}`;
+    }
+  } catch (e) {
+    console.error(e); out.className = "msg msg-error";
+    out.textContent = `Could not reach the email check: ${(e && e.message) || e.code}`;
+  } finally { btn.disabled = false; }
+});
+
 function download(name, text, type) {
   const a = h("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -507,7 +525,7 @@ async function openRequest(id) {
     ["Held until", r.status === "reserved" ? fmtDay(r.expiresAt) : "–"], ["Prices", `${r.priceTier} · ${r.currency}`],
     ["Ship to", r.shipTo ? [r.shipTo.label, r.shipTo.text].filter(Boolean).join(" / ") : "(none on file)"],
     ["Requested ship date", r.shipDate || "–"], ["PO", r.po || "–"], ["Notes", r.notes || "–"],
-    ["Emails", r.emails ? `owner ${r.emails.owner}, shop ${r.emails.shop}` : "–"]
+    ["Emails", r.emails ? `owner ${r.emails.owner}, shop ${r.emails.shop}${r.emails.error ? "\nProblem: " + r.emails.error : ""}` : "–"]
   ];
   const kv = h("dl", { class: "kv", style: "margin-bottom:14px" }, ...info.flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { style: "white-space:pre-line", text: v })]));
   const tbl = h("table", { class: "t" },

@@ -55,6 +55,14 @@
     <!-- REQUESTS -->
     <section id="panel-requests" role="tabpanel" aria-labelledby="tab-requests" hidden>
       <div class="h-row"><h2>Requests</h2><button id="req-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button></div>
+      <div class="card pad" style="margin-bottom:14px">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <b>Email check</b>
+          <button id="mail-test" class="btn btn-ghost btn-sm" type="button">Send me a test email</button>
+          <span class="hint">Sends a test message to your Gmail and tells you exactly what went wrong if it fails.</span>
+        </div>
+        <div id="mail-result" class="msg msg-info" style="margin:12px 0 0" hidden></div>
+      </div>
       <div class="chips" role="group" aria-label="Filter requests" id="req-filters">
         <button class="chip" type="button" data-f="open" aria-pressed="true">Open (reserved)</button>
         <button class="chip" type="button" data-f="invoiced" aria-pressed="false">Invoiced</button>
