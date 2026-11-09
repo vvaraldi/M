@@ -1,19 +1,22 @@
-// Portal page: sign-in with an emailed link, invitation check, stock list.
+// Portal page: sign-in with an emailed link, invitation check, stock, request (cart) and history.
 import {
-  auth, db, onAuthStateChanged, signOut, doc, getDoc, updateDoc,
-  sendLink, openedFromEmailLink, completeEmailLink, emailKey
+  auth, db, onAuthStateChanged, signOut, doc, getDoc, getDocs, collection, query, where, updateDoc,
+  sendLink, openedFromEmailLink, completeEmailLink, emailKey, callFn
 } from "./fb.js";
 import { ADMIN_EMAIL } from "./firebase-config.js";
-import { LANGS, t, setLang, getLang, detectLang, rememberLang, countLabel, dateLabel, categoryLabel, conditionLabel } from "./i18n.js";
-import { h, filterItems, presentGroups, presentSizes, presentConditions, renderStock } from "./render.js";
+import { LANGS, t, setLang, getLang, detectLang, rememberLang, dateLabel, money } from "./i18n.js";
+import { h } from "./render.js";
+import { createStockView } from "./stockview.js";
+import { initCart, cart, count as cartCount, entries as cartEntries, onCartChange, reconcile } from "./cart.js";
+import { renderCartView, renderHistory } from "./requests.js";
 
 const $ = (id) => document.getElementById(id);
 const VIEWS = ["loading", "signin", "sent", "confirm", "denied", "app"];
 const show = (name) => VIEWS.forEach((v) => { $("view-" + v).hidden = v !== name; });
+const ROUTES = ["stock", "request", "history"];
 
-let profile = null, shop = null, meta = null, items = [], prices = {}, brands = [];   // brands: [{key,name}] that have stock
-let pendingError = null, lastEmail = "";
-const filters = { query: "", brand: "", group: "", size: "", condition: "" };
+let profile = null, shop = null, meta = null, items = [], prices = {}, reserved = {}, brands = [];
+let pendingError = null, lastEmail = "", stockView = null, route = "stock", firstRender = true;
 
 // ------------------------------------------------------------------ language
 function hasStoredLang() { try { return LANGS.includes(localStorage.getItem("lang")); } catch (e) { return false; } }
@@ -77,7 +80,7 @@ function askEmail(mismatch) {
       e.preventDefault();
       const input = $("confirm-email");
       if (input.checkValidity()) resolve(input.value.trim());
-    }, { once: false });
+    });
   });
 }
 
@@ -87,6 +90,38 @@ document.querySelectorAll("[data-pills]").forEach((p) => p.addEventListener("cli
 }));
 
 // ------------------------------------------------------------------ data
+/** Read what this user may see: only the allowed brands, only their own price tier, plus what is already reserved. */
+async function fetchData() {
+  const keys = (Array.isArray(profile.brands) ? profile.brands : []).filter((k) => /^[a-z0-9]+$/.test(k));
+  const [shopSnap, metaSnap, ...rest] = await Promise.all([
+    getDoc(doc(db, "shops", profile.shopId)),
+    getDoc(doc(db, "stock", "meta")),
+    ...keys.map((k) => getDoc(doc(db, "stock", `items__${k}`))),
+    ...keys.map((k) => getDoc(doc(db, "prices", `${profile.priceTier}__${k}`))),
+    ...keys.map((k) => getDoc(doc(db, "reserved", k)))
+  ]);
+  const n = keys.length, itemSnaps = rest.slice(0, n), priceSnaps = rest.slice(n, 2 * n), reservedSnaps = rest.slice(2 * n);
+  shop = shopSnap.exists() ? shopSnap.data() : { name: profile.shopName, currency: profile.currency, addresses: [] };
+  meta = metaSnap.exists() ? metaSnap.data() : null;
+  items = []; prices = {}; reserved = {}; brands = [];
+  keys.forEach((k, i) => {
+    if (itemSnaps[i].exists()) {
+      const d = itemSnaps[i].data();
+      brands.push({ key: k, name: d.brand || k });
+      for (const it of d.items || []) items.push({ ...it, brand: d.brand || k, brandKey: k });
+    }
+    if (priceSnaps[i].exists()) Object.assign(prices, priceSnaps[i].data().prices || {});
+    if (reservedSnaps[i].exists()) Object.assign(reserved, reservedSnaps[i].data().map || {});
+  });
+  brands.sort((a, b) => a.name.localeCompare(b.name));
+  reconcile(items, reserved);   // trim the cart to what is still available
+}
+
+async function reloadData() {
+  await fetchData();
+  renderApp();
+}
+
 async function loadPortal(user) {
   const email = emailKey(user.email);
   const userSnap = await getDoc(doc(db, "users", email));
@@ -103,57 +138,63 @@ async function loadPortal(user) {
   show("app");
   $("admin-link").hidden = email !== ADMIN_EMAIL;
   $("app-error").hidden = true;
-  $("stock-ui").hidden = true;
+  setPages(null);
   $("banner").replaceChildren();
+  initCart(email);
   try {
-    // Only the brands the admin allowed for this user are requested (the security rules enforce the same list).
-    const keys = (Array.isArray(profile.brands) ? profile.brands : []).filter((k) => /^[a-z0-9]+$/.test(k));
-    const [shopSnap, metaSnap, ...rest] = await Promise.all([
-      getDoc(doc(db, "shops", profile.shopId)),
-      getDoc(doc(db, "stock", "meta")),
-      ...keys.map((k) => getDoc(doc(db, "stock", `items__${k}`))),
-      ...keys.map((k) => getDoc(doc(db, "prices", `${profile.priceTier}__${k}`)))
-    ]);
-    const itemSnaps = rest.slice(0, keys.length), priceSnaps = rest.slice(keys.length);
-    shop = shopSnap.exists() ? shopSnap.data() : { name: profile.shopName, currency: profile.currency };
-    meta = metaSnap.exists() ? metaSnap.data() : null;
-    items = []; prices = {}; brands = [];
-    keys.forEach((k, n) => {
-      if (itemSnaps[n].exists()) {
-        const d = itemSnaps[n].data();
-        brands.push({ key: k, name: d.brand || k });
-        for (const it of d.items || []) items.push({ ...it, brand: d.brand || k });
-      }
-      if (priceSnaps[n].exists()) Object.assign(prices, priceSnaps[n].data().prices || {});
-    });
-    brands.sort((a, b) => a.name.localeCompare(b.name));
+    await fetchData();
   } catch (err) {
     console.error("Load error:", err);
     $("app-error").textContent = t("load_err"); $("app-error").hidden = false;
     $("shop-chip").textContent = profile.shopName || "";
     return;
   }
-  buildFilters();
+  firstRender = true;
+  route = routeFromHash();
   renderApp();
 }
 
-// ------------------------------------------------------------------ stock UI
-function fillSelect(sel, firstLabel, values, labelOf) {
-  const keep = sel.value;
-  sel.replaceChildren(h("option", { value: "", text: firstLabel }), ...values.map((v) => h("option", { value: v, text: labelOf ? labelOf(v) : v })));
-  sel.value = values.includes(keep) ? keep : "";
+// ------------------------------------------------------------------ pages and navigation
+function routeFromHash() { const r = location.hash.replace("#", ""); return ROUTES.includes(r) ? r : "stock"; }
+function setPages(active) {
+  for (const r of ROUTES) $("page-" + r).hidden = r !== active;
+  document.querySelectorAll("#nav [data-route]").forEach((b) => b.setAttribute("aria-current", b.dataset.route === active ? "page" : "false"));
+}
+function go(r) { if (location.hash !== "#" + r) location.hash = r; else renderApp(); }
+window.addEventListener("hashchange", () => { if (profile && !$("view-app").hidden) { route = routeFromHash(); renderApp(); } });
+document.querySelectorAll("#nav [data-route]").forEach((b) => b.addEventListener("click", () => go(b.dataset.route)));
+$("cartbar-btn").addEventListener("click", () => go("request"));
+
+function cartTotals() {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  let sub = 0, tbd = false, n = 0;
+  for (const e of cartEntries()) {
+    const it = byId.get(e.itemId); if (!it) continue;
+    n++;
+    const p = prices[it.id];
+    if (p) sub += p.p * e.qty; else tbd = true;
+  }
+  return { n, sub: Math.round(sub * 100) / 100, tbd };
 }
 
-function buildFilters() {
-  filters.query = ""; filters.brand = ""; filters.group = ""; filters.size = ""; filters.condition = "";
-  $("q").value = "";
+function updateCartBar() {
+  const { n, sub, tbd } = cartTotals();
+  $("nav-count").textContent = String(n); $("nav-count").hidden = n === 0;
+  const bar = $("cartbar");
+  bar.hidden = !(n > 0 && route === "stock" && !$("view-app").hidden);
+  if (n > 0) {
+    const one = new Intl.PluralRules(getLang()).select(n) === "one";
+    $("cartbar-text").replaceChildren(h("b", {}, t(one ? "cartbar_one" : "cartbar_other", { n })),
+      " · ", money(sub, profile.currency), tbd ? " " + t("cartbar_tbd") : "");
+    $("cartbar-btn").textContent = t("cartbar_review");
+  }
 }
+onCartChange(() => { if (profile) updateCartBar(); });
 
 function renderApp() {
   if (!profile || $("view-app").hidden) return;
   const cur = profile.currency;
-  const strong = (tag, txt) => h(tag, {}, txt);
-  $("shop-chip").replaceChildren(`${shop.name} · `, strong("b", cur));
+  $("shop-chip").replaceChildren(`${shop.name} · `, h("b", {}, cur));
 
   const note = (profile.priceTier || "").startsWith("RETAIL") ? "pricenote_retail" : "pricenote";
   const when = dateLabel(meta && (meta.stockRefreshedAt || meta.generatedAt));
@@ -164,58 +205,30 @@ function renderApp() {
   const noBrand = !(Array.isArray(profile.brands) && profile.brands.length);
   if (noBrand || !meta || !items.length) {
     $("app-error").textContent = t(noBrand ? "no_brands" : "none_published"); $("app-error").className = "msg msg-info"; $("app-error").hidden = false;
-    $("stock-ui").hidden = true; return;
+    setPages(null); $("cartbar").hidden = true; return;
   }
   $("app-error").hidden = true; $("app-error").className = "msg msg-error";
-  $("stock-ui").hidden = false;
-
-  // brand chips: only when this user may see more than one brand that has stock
-  if (filters.brand && !brands.some((b) => b.name === filters.brand)) filters.brand = "";
-  const brandBox = $("brand-chips");
-  brandBox.hidden = brands.length < 2;
-  if (brands.length >= 2) {
-    const mkb = (name, label) => {
-      const b = h("button", { class: "chip", type: "button", "aria-pressed": String(filters.brand === name), text: label });
-      b.addEventListener("click", () => { filters.brand = name; renderApp(); });
-      return b;
-    };
-    brandBox.replaceChildren(mkb("", t("all_brands")), ...brands.map((b) => mkb(b.name, b.name)));
-  }
-  const scope = filters.brand ? items.filter((i) => i.brand === filters.brand) : items;
-
-  fillSelect($("size"), t("all_sizes"), presentSizes(scope));
-  fillSelect($("cond"), t("all_cond"), presentConditions(scope), conditionLabel);
-  filters.size = $("size").value; filters.condition = $("cond").value;
-
-  // group chips
-  const groups = presentGroups(scope);
-  if (filters.group && !groups.includes(filters.group)) filters.group = "";
-  const mk = (key, label) => {
-    const b = h("button", { class: "chip", type: "button", "aria-pressed": String(filters.group === key), text: label });
-    b.addEventListener("click", () => { filters.group = key; renderApp(); });
-    return b;
+  setPages(route);
+  const ctx = {
+    items, prices, reserved, brands, currency: cur, profile, shop, callFn, reloadData,
+    goStock: () => go("stock"), goHistory: () => go("history"),
+    fetchRequests: async () => (await getDocs(query(collection(db, "requests"), where("shopId", "==", profile.shopId)))).docs
   };
-  $("chips").replaceChildren(mk("", t("all")), ...groups.map((g) => mk(g, t(g))));
 
-  const contact = $("contact");
-  contact.replaceChildren();
-  if (meta.contact && /^[^\s@<>"]+@[^\s@<>"]+$/.test(meta.contact)) {
-    contact.append(t("contact") + " ", h("a", { href: "mailto:" + meta.contact, text: t("contact_link") }));
+  if (route === "stock") {
+    if (!stockView) stockView = createStockView($("stock-root"), { cart, onCartChange: updateCartBar });
+    stockView.setData({ items, prices, reserved, brands, currency: cur }, firstRender);
+    firstRender = false;
+    const contact = $("contact");
+    contact.replaceChildren();
+    if (meta.contact && /^[^\s@<>"]+@[^\s@<>"]+$/.test(meta.contact)) contact.append(t("contact") + " ", h("a", { href: "mailto:" + meta.contact, text: t("contact_link") }));
+  } else if (route === "request") {
+    renderCartView($("page-request"), ctx);
+  } else {
+    renderHistory($("page-history"), ctx);
   }
-  renderList();
+  updateCartBar();
 }
-
-function renderList() {
-  const shown = filterItems(items, filters);
-  $("count").textContent = countLabel(shown.length);
-  const list = $("list");
-  if (!shown.length) { list.replaceChildren(h("div", { class: "empty", text: t("no_results") })); return; }
-  renderStock(list, shown, { prices, currency: profile.currency, showBrand: brands.length > 1 });
-}
-
-$("q").addEventListener("input", (e) => { filters.query = e.target.value; renderList(); });
-$("size").addEventListener("change", (e) => { filters.size = e.target.value; renderList(); });
-$("cond").addEventListener("change", (e) => { filters.condition = e.target.value; renderList(); });
 
 // ------------------------------------------------------------------ start
 async function boot() {
@@ -227,7 +240,7 @@ async function boot() {
     if (err && err !== "cancelled") pendingError = errorText(err);
   }
   onAuthStateChanged(auth, async (user) => {
-    profile = null;
+    profile = null; stockView = null; $("stock-root").replaceChildren();
     if (!user) {
       show("signin");
       showSignInError(pendingError); pendingError = null;

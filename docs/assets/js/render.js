@@ -39,9 +39,12 @@ export function filterItems(items, f) {
   });
 }
 
-const BADGE = { New: "b-new", Demo: "b-demo", "Old graphics": "b-old", Defect: "b-defect" };
+export const BADGE = { New: "b-new", Demo: "b-demo", "Old graphics": "b-old", Defect: "b-defect" };
 
-function priceCell(entry, currency, unit) {
+/** What can still be requested: the last stock upload minus what open requests hold. */
+export const effective = (item, reserved) => Math.max(0, (item.available || 0) - ((reserved && reserved[item.id]) || 0));
+
+export function priceCell(entry, currency, unit) {
   if (!entry) return h("div", { class: "price none", text: t("price_on_request") });
   const per = unit === "m" ? " / m" : ""; // skin rolls are priced per metre
   const el = h("div", { class: "price" }, money(entry.p, currency) + per);
@@ -50,9 +53,36 @@ function priceCell(entry, currency, unit) {
   return el;
 }
 
-/** Render the grouped product cards into `container`. `ctx` = { prices: {id:{p,m,est}}, currency }. */
+/** Quantity control: [-] [number] [+]. `cart` = { qty(id), set(item, n) }. */
+export function qtyControl(item, eff, cart, onChange) {
+  const name = [item.description, item.size].filter(Boolean).join(" ");
+  const input = h("input", { class: "st-input", type: "number", min: "0", max: String(eff), step: "1", inputmode: "numeric", value: String(cart.qty(item.id) || 0), "aria-label": t("qty_for", { name }) });
+  const minus = h("button", { class: "st-btn", type: "button", "aria-label": t("less"), text: "−" });
+  const plus = h("button", { class: "st-btn", type: "button", "aria-label": t("more"), text: "+" });
+  const wrap = h("span", { class: "stepper" + (cart.qty(item.id) > 0 ? " on" : "") }, minus, input, plus);
+  const apply = (v) => {
+    let n = Math.floor(Number(v));
+    if (!Number.isFinite(n) || n < 0) n = 0;
+    if (n > eff) n = eff;
+    input.value = String(n);
+    wrap.classList.toggle("on", n > 0);
+    cart.set(item, n);
+    if (onChange) onChange();
+  };
+  minus.addEventListener("click", () => apply(Number(input.value) - 1));
+  plus.addEventListener("click", () => apply(Number(input.value) + 1));
+  input.addEventListener("change", () => apply(input.value));
+  input.addEventListener("focus", () => input.select());
+  return wrap;
+}
+
+/**
+ * Render the grouped product cards into `container`.
+ * ctx = { prices:{id:{p,m,est}}, currency, showBrand, reserved:{id:qty}, cart:null|{qty,set}, onCartChange }
+ */
 export function renderStock(container, items, ctx) {
   container.replaceChildren();
+  const reserved = ctx.reserved || {}, cart = ctx.cart || null;
   const groups = new Map();
   for (const i of items) {
     const key = i.brand + "|" + i.category + "|" + i.description;
@@ -66,13 +96,20 @@ export function renderStock(container, items, ctx) {
       h("div", { class: "pbody" },
         h("h3", { class: "ptitle", text: g.description }),
         h("div", { class: "pmeta", text: meta }),
-        h("div", { class: "vrow vhead", "aria-hidden": "true" },
-          h("span", { text: t("h_size") }), h("span", { text: t("h_cond") }), h("span", { text: t("h_av") }), h("span", { text: t("h_price") })),
-        g.rows.map((i) => h("div", { class: "vrow" },
-          h("span", {}, [i.size, i.color].filter(Boolean).join(" · ") || "–", i.code ? h("span", { class: "sub", text: i.code }) : null),
-          h("span", {}, h("span", { class: "badge " + (BADGE[i.condition] || "b-new"), text: conditionLabel(i.condition) })),
-          h("span", { class: "avail" }, qtyFormat(i.available) + " ", h("small", { text: unitLabel(i.unit, i.available) })),
-          priceCell(ctx.prices[i.id], ctx.currency, i.unit)))));
+        h("div", { class: "vrow vhead" + (cart ? " has-qty" : ""), "aria-hidden": "true" },
+          h("span", { text: t("h_size") }), h("span", { text: t("h_cond") }), h("span", { text: t("h_av") }), h("span", { text: t("h_price") }), cart ? h("span", { text: t("qty") }) : null),
+        g.rows.map((i) => {
+          const eff = effective(i, reserved), held = (reserved[i.id] || 0) > 0;
+          const avail = eff > 0
+            ? h("span", { class: "avail" }, qtyFormat(eff) + " ", h("small", { text: unitLabel(i.unit, eff) }))
+            : h("span", { class: "avail" }, held ? h("span", { class: "badge b-held", text: t("reserved_badge") }) : "0");
+          return h("div", { class: "vrow" + (cart ? " has-qty" : "") + (eff <= 0 ? " is-out" : "") },
+            h("span", {}, [i.size, i.color].filter(Boolean).join(" · ") || "–", i.code ? h("span", { class: "sub", text: i.code }) : null),
+            h("span", {}, h("span", { class: "badge " + (BADGE[i.condition] || "b-new"), text: conditionLabel(i.condition) })),
+            avail,
+            priceCell(ctx.prices[i.id], ctx.currency, i.unit),
+            cart ? (eff > 0 ? qtyControl(i, eff, cart, ctx.onCartChange) : h("span", {})) : null);
+        })));
     container.append(card);
   }
 }

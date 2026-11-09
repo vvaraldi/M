@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com; frame-src https://m-dealer-portal.firebaseapp.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.cloudfunctions.net https://*.run.app; frame-src https://m-dealer-portal.firebaseapp.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>M · Dealer portal</title>
 <link rel="icon" href="assets/img/icon-64.png">
 <link rel="apple-touch-icon" href="assets/img/icon-192.png">
@@ -79,6 +79,11 @@
 <div id="view-app" hidden>
   <header class="topbar">
     <a class="brand" href="./"><img src="assets/img/logo-white.png" alt="M"><span class="portal-name" data-i="portal">Dealer portal</span></a>
+    <nav id="nav" class="tabs" aria-label="Main">
+      <button type="button" data-route="stock" aria-current="page"><span data-i="nav_stock">Stock</span></button>
+      <button type="button" data-route="request" aria-current="false"><span data-i="nav_request">My request</span><span id="nav-count" class="count-pill" hidden>0</span></button>
+      <button type="button" data-route="history" aria-current="false"><span data-i="nav_history">History</span></button>
+    </nav>
     <span class="spacer"></span>
     <a id="admin-link" class="btn btn-ghost-light btn-sm" href="admin.html" hidden>Admin</a>
     <span class="pills" data-pills role="group" aria-label="Language"><button data-l="en" aria-pressed="true">EN</button><button data-l="fr" aria-pressed="false">FR</button><button data-l="it" aria-pressed="false">IT</button></span>
@@ -88,23 +93,17 @@
   <div id="banner" class="banner"></div>
   <main class="page">
     <div id="app-error" class="msg msg-error" role="alert" hidden></div>
-    <div id="stock-ui" hidden>
-      <div class="toolbar">
-        <div class="search">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <label class="sr-only" for="q" data-i="search_lbl">Search</label>
-          <input id="q" type="search" autocomplete="off" data-ph="search_ph" placeholder="Search model, size or code">
-        </div>
-        <select id="size" class="sel" aria-label="Size"></select>
-        <select id="cond" class="sel" aria-label="Condition"></select>
-      </div>
-      <div id="brand-chips" class="chips" role="group" aria-label="Brand" hidden></div>
-      <div id="chips" class="chips" role="group"></div>
-      <p id="count" class="count" aria-live="polite"></p>
-      <div id="list" class="list-grid"></div>
+    <section id="page-stock" hidden>
+      <div id="stock-root"></div>
       <p id="contact" class="foot"></p>
-    </div>
+    </section>
+    <section id="page-request" hidden></section>
+    <section id="page-history" hidden></section>
   </main>
+  <div id="cartbar" class="cartbar" hidden>
+    <span id="cartbar-text"></span>
+    <button id="cartbar-btn" class="btn btn-cta" type="button">Review request</button>
+  </div>
 </div>
 
 <script type="module" src="assets/js/portal.js"></script>

@@ -7,8 +7,9 @@ import {
 } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 import {
   getFirestore, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection,
-  writeBatch, serverTimestamp
+  writeBatch, serverTimestamp, query, where
 } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js";
 import { firebaseConfig, DATABASE_ID } from "./firebase-config.js";
 
 export const app = initializeApp(firebaseConfig);
@@ -17,8 +18,14 @@ export const db = getFirestore(app, DATABASE_ID);
 
 export {
   onAuthStateChanged, signOut, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-  collection, writeBatch, serverTimestamp
+  collection, writeBatch, serverTimestamp, query, where
 };
+
+/** Call a Cloud Function (region us-central1). Resolves with the function's result, rejects with an error that has .code and .details. */
+export async function callFn(name, data) {
+  const res = await httpsCallable(getFunctions(app, "us-central1"), name)(data);
+  return res.data;
+}
 
 const EMAIL_KEY = "emailForSignIn";
 

@@ -12,6 +12,8 @@ rules_version = '2';
 //  - Prices are also one document per price tier. A user can only read the tier written on their
 //    own invitation, so a CAD shop cannot read USD, retail or export prices either.
 //  - Warehouse locations, brand lists and upload details live in /admin and are never readable by shops.
+//  - Requests and reservations (/requests, /reserved) are written only by Cloud Functions (which bypass
+//    these rules); browsers can only read them, and only their own shop's requests.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -79,7 +81,27 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Admin-only data (warehouse locations, brand list, upload details, later: requests export).
+    // Quantities currently held by open requests, one document per brand: { map: { itemId: qty } }.
+    // Shops read it to show what is really available. Only the Cloud Functions write it.
+    match /reserved/{docId} {
+      allow read: if isAdmin() || (isInvited() && docId in myBrands());
+      allow write: if false;
+    }
+
+    // A shop's requests. Users see the requests of their own shop; nobody writes from the browser:
+    // every change goes through a Cloud Function so reservations always stay consistent.
+    match /requests/{id} {
+      allow read: if isAdmin() || (isInvited() && resource.data.shopId == myData().shopId);
+      allow write: if false;
+    }
+
+    // Warehouse locations per request line: owner only.
+    match /requestsPrivate/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Admin-only data (warehouse locations, brand list, upload details).
     match /admin/{docId} {
       allow read, write: if isAdmin();
     }

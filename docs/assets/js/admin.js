@@ -2,10 +2,13 @@
 // The real protection is in firestore.rules; the checks here are for a clear user experience.
 import {
   auth, db, onAuthStateChanged, signOut, doc, getDoc, getDocs, collection, writeBatch,
-  serverTimestamp, sendLink, emailKey
+  serverTimestamp, sendLink, emailKey, callFn
 } from "./fb.js";
 import { ADMIN_EMAIL } from "./firebase-config.js";
 import { h } from "./render.js";
+import { setLang, dateLabel, money } from "./i18n.js";
+import { createStockView } from "./stockview.js";
+import { exportShape, requestCsv } from "./requestexport.js";
 
 const $ = (id) => document.getElementById(id);
 const show = (name) => ["loading", "noaccess", "app"].forEach((v) => { $("view-" + v).hidden = v !== name; });
@@ -40,15 +43,18 @@ const brandKeysSorted = () => Object.keys(brandNames).sort((a, b) => brandLabel(
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
 
 // ------------------------------------------------------------------ tabs
+const TABS = ["shops", "requests", "view", "stock"];
 function selectTab(name) {
-  for (const t of ["shops", "stock"]) {
+  for (const t of TABS) {
     $("tab-" + t).setAttribute("aria-selected", String(t === name));
     $("panel-" + t).hidden = t !== name;
   }
+  if (name !== "view") setLang("en");   // the shop view may use another language; the admin pages stay in English
   if (name === "stock") loadPublished();
+  if (name === "requests") loadRequests();
+  if (name === "view") openShopView();
 }
-$("tab-shops").addEventListener("click", () => selectTab("shops"));
-$("tab-stock").addEventListener("click", () => selectTab("stock"));
+for (const t of TABS) $("tab-" + t).addEventListener("click", () => selectTab(t));
 $("signout").addEventListener("click", () => signOut(auth));
 
 // ------------------------------------------------------------------ shops
@@ -309,12 +315,15 @@ function sanitize(data) {
   return { items, prices, locations, brands };
 }
 
-$("file").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
+/** Read, check and preview a chosen or dropped stock.json. */
+async function processFile(file) {
   $("preview").hidden = true; pendingFile = null;
+  $("drop-name").textContent = file ? file.name : "";
   if (!file) return;
   try {
-    const data = JSON.parse(await file.text());
+    let data;
+    try { data = JSON.parse(await file.text()); }
+    catch (e) { throw new Error(`"${file.name}" is not a stock export. Please choose stock.json from tools\\output.`); }
     const clean = sanitize(data);
     pendingFile = { data, clean };
     const kv = $("preview-kv"); kv.replaceChildren();
@@ -335,10 +344,37 @@ $("file").addEventListener("change", async (e) => {
   } catch (err) {
     console.error(err);
     toast(err.message || "Could not read the file.", true);
-    e.target.value = "";
+    $("file").value = ""; $("drop-name").textContent = "";
   }
+}
+
+// ---- drag and drop, plus a "Choose file…" picker
+const drop = $("drop");
+const pickFile = async () => {
+  if (typeof window.showOpenFilePicker === "function") {
+    // Chrome / Edge: the same `id` makes the browser reopen in the folder used last time (tools\output after the first pick)
+    try {
+      const [handle] = await window.showOpenFilePicker({ id: "m-stock-export", multiple: false, types: [{ description: "Stock export (stock.json)", accept: { "application/json": [".json"] } }] });
+      return processFile(await handle.getFile());
+    } catch (e) { if (e && e.name === "AbortError") return; /* anything else: fall back to the classic picker */ }
+  }
+  $("file").click();
+};
+$("pick").addEventListener("click", (e) => { e.stopPropagation(); pickFile(); });
+$("file").addEventListener("change", (e) => processFile(e.target.files[0]));
+drop.addEventListener("keydown", (e) => { if (e.target === drop && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pickFile(); } });
+for (const ev of ["dragenter", "dragover"]) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); });
+for (const ev of ["dragleave", "dragend"]) drop.addEventListener(ev, () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault(); drop.classList.remove("over");
+  const files = [...(e.dataTransfer ? e.dataTransfer.files : [])];
+  if (files.length !== 1) { toast("Please drop one file: stock.json.", true); return; }
+  processFile(files[0]);
 });
-$("cancel-publish").addEventListener("click", () => { $("preview").hidden = true; $("file").value = ""; pendingFile = null; });
+// a file dropped outside the box must not make the browser leave the page
+for (const ev of ["dragover", "drop"]) window.addEventListener(ev, (e) => { if (e.target !== drop && !drop.contains(e.target)) e.preventDefault(); });
+
+$("cancel-publish").addEventListener("click", () => { $("preview").hidden = true; $("file").value = ""; $("drop-name").textContent = ""; pendingFile = null; });
 
 $("publish").addEventListener("click", async () => {
   if (!pendingFile) return;
@@ -385,13 +421,196 @@ $("publish").addEventListener("click", async () => {
     existingPrices.docs.forEach((d) => { if (!keepPrices.has(d.id)) batch.delete(d.ref); });
     await batch.commit();
     toast("Published. Shops now see the new stock.");
-    $("preview").hidden = true; $("file").value = ""; pendingFile = null;
+    $("preview").hidden = true; $("file").value = ""; $("drop-name").textContent = ""; pendingFile = null;
     loadPublished(); loadShops();
   } catch (err) {
     console.error(err);
     toast(`Publish failed: ${err.code || err.message}`, true);
   } finally { btn.disabled = false; }
 });
+
+// ------------------------------------------------------------------ requests
+let allRequests = [], reqFilter = "open", openRequestId = null;
+const toDate = (v) => (v && v.toDate ? v.toDate() : v ? new Date(v) : null);
+const fmtDay = (v) => { const d = toDate(v); return d ? new Intl.DateTimeFormat("en-CA", { dateStyle: "medium", timeZone: "America/Toronto" }).format(d) : "–"; };
+const STATUS_CLASS = { reserved: "s-res", expired: "s-exp", cancelled: "s-can", released: "s-rel", invoiced: "s-inv" };
+const STATUS_TEXT = { reserved: "Reserved", expired: "Expired", cancelled: "Cancelled", released: "Released", invoiced: "Invoiced" };
+
+async function loadRequests() {
+  try {
+    const snap = await getDocs(collection(db, "requests"));
+    allRequests = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => toDate(b.createdAt) - toDate(a.createdAt));
+  } catch (e) { console.error(e); toast(`Could not load requests: ${e.code || e.message}`, true); }
+  renderRequests();
+}
+
+function renderRequests() {
+  const open = allRequests.filter((r) => r.status === "reserved");
+  $("req-badge").textContent = String(open.length); $("req-badge").hidden = open.length === 0;
+  const keep = { open: (r) => r.status === "reserved", invoiced: (r) => r.status === "invoiced", closed: (r) => ["expired", "cancelled", "released"].includes(r.status), all: () => true }[reqFilter];
+  const rows = allRequests.filter(keep);
+  const body = $("req-table").querySelector("tbody"); body.replaceChildren();
+  $("req-empty").hidden = rows.length > 0;
+  const soon = Date.now() + 2 * 864e5;
+  for (const r of rows) {
+    const b = h("button", { class: "btn btn-ghost btn-sm", type: "button", text: "Open" });
+    b.addEventListener("click", () => openRequest(r.id));
+    const ends = toDate(r.expiresAt);
+    body.append(h("tr", {},
+      h("td", {}, h("b", { text: r.number }), h("br"), h("span", { class: "hint", text: fmtDay(r.createdAt) })),
+      h("td", {}, r.shopName, h("br"), h("span", { class: "hint", text: r.userEmail })),
+      h("td", { text: String(r.lines.length) }),
+      h("td", { class: "num", text: `${money(r.subtotal, r.currency)}${r.hasTbd ? " +" : ""}` }),
+      h("td", { class: r.status === "reserved" && ends && ends.getTime() < soon ? "warn-text" : "", text: r.status === "reserved" ? fmtDay(r.expiresAt) : "–" }),
+      h("td", {}, h("span", { class: "status " + (STATUS_CLASS[r.status] || "s-can"), text: STATUS_TEXT[r.status] || r.status })),
+      h("td", {}, b)));
+  }
+}
+$("req-filters").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-f]"); if (!b) return;
+  reqFilter = b.dataset.f;
+  $("req-filters").querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c === b)));
+  renderRequests();
+});
+$("req-refresh").addEventListener("click", loadRequests);
+
+function download(name, text, type) {
+  const a = h("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function privateOf(id) { try { const s = await getDoc(doc(db, "requestsPrivate", id)); return s.exists() ? s.data() : null; } catch (e) { return null; } }
+
+$("req-export-open").addEventListener("click", async () => {
+  const open = allRequests.filter((r) => r.status === "reserved");
+  if (!open.length) { toast("No open request to export."); return; }
+  const all = [];
+  for (const r of open) all.push(exportShape(r, await privateOf(r.id)));
+  download(`open-requests-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(all, null, 2), "application/json");
+});
+
+const ACTION_TEXT = {
+  extend: ["Extend 7 days", "Hold the items for 7 more days?", "btn-ghost"],
+  release: ["Release", "Release the items now? They become available to other shops.", "btn-danger"],
+  cancel: ["Cancel request", "Cancel this request and release the items?", "btn-danger"],
+  invoice: ["Mark invoiced", "Mark as invoiced? Items still held are released (your Excel stock already accounts for the invoice).", "btn-primary"]
+};
+const ACTIONS_FOR = { reserved: ["extend", "invoice", "release", "cancel"], expired: ["invoice"], released: ["invoice"], cancelled: [], invoiced: [] };
+
+async function openRequest(id) {
+  const r = allRequests.find((x) => x.id === id); if (!r) return;
+  openRequestId = id;
+  const priv = await privateOf(id);
+  const loc = (priv && priv.lines) || {};
+  $("rd-title").textContent = `${r.number} · ${r.shopName}`;
+  const info = [
+    ["Status", STATUS_TEXT[r.status] || r.status], ["Contact", r.userEmail], ["Sent", fmtDay(r.createdAt)],
+    ["Held until", r.status === "reserved" ? fmtDay(r.expiresAt) : "–"], ["Prices", `${r.priceTier} · ${r.currency}`],
+    ["Ship to", r.shipTo ? [r.shipTo.label, r.shipTo.text].filter(Boolean).join(" / ") : "(none on file)"],
+    ["Requested ship date", r.shipDate || "–"], ["PO", r.po || "–"], ["Notes", r.notes || "–"],
+    ["Emails", r.emails ? `owner ${r.emails.owner}, shop ${r.emails.shop}` : "–"]
+  ];
+  const kv = h("dl", { class: "kv", style: "margin-bottom:14px" }, ...info.flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { style: "white-space:pre-line", text: v })]));
+  const tbl = h("table", { class: "t" },
+    h("thead", {}, h("tr", {}, ...["Brand", "Code", "Item", "Qty", "Unit price", "Total", "Stock E / C"].map((x, i) => h("th", { class: i > 2 ? "num" : "", text: x })))),
+    h("tbody", {}, ...r.lines.map((l) => {
+      const lo = loc[l.itemId] || {};
+      return h("tr", {},
+        h("td", { text: l.brand }), h("td", { text: l.code || "" }),
+        h("td", { text: [l.description, l.size, l.color].filter(Boolean).join(" ") + (l.condition !== "New" ? ` (${l.condition})` : "") }),
+        h("td", { class: "num", text: `${l.qty} ${l.unit}` }),
+        h("td", { class: "num", text: l.priceTbd ? "TBD" : money(l.unitPrice, r.currency) + (l.unit === "m" ? " / m" : "") + (l.est ? " est." : "") }),
+        h("td", { class: "num", text: l.priceTbd ? "–" : money(l.lineTotal, r.currency) }),
+        h("td", { class: "num", text: `${lo.Eastman || 0} / ${lo.CDEC || 0}` }));
+    })));
+  $("rd-body").replaceChildren(kv, h("div", { style: "overflow:auto" }, tbl),
+    h("p", { style: "margin-top:10px" }, h("b", { text: `Subtotal (before tax): ${money(r.subtotal, r.currency)}` }), r.hasTbd ? "  + lines to price" : ""));
+
+  const mkAction = (a) => {
+    const [label, ask, cls] = ACTION_TEXT[a];
+    const b = h("button", { class: "btn btn-sm " + cls, type: "button", text: label });
+    b.addEventListener("click", async () => {
+      if (!confirm(ask)) return;
+      b.disabled = true;
+      try { await callFn("updateRequest", { id, action: a }); toast(`${r.number}: ${label.toLowerCase()} done`); await loadRequests(); openRequest(id); }
+      catch (e) { console.error(e); toast(`Could not do that: ${(e && e.message) || e.code}`, true); b.disabled = false; }
+    });
+    return b;
+  };
+  const dl = (txt, fn) => { const b = h("button", { class: "btn btn-ghost btn-sm", type: "button", text: txt }); b.addEventListener("click", fn); return b; };
+  $("rd-actions").replaceChildren(
+    dl("Download JSON", () => download(`${r.number}.json`, JSON.stringify(exportShape(r, priv), null, 2), "application/json")),
+    dl("Download CSV", () => download(`${r.number}.csv`, requestCsv(r, priv), "text/csv;charset=utf-8")),
+    h("span", { class: "spacer", style: "flex:1" }),
+    ...(ACTIONS_FOR[r.status] || []).map(mkAction));
+  if (!$("req-dialog").open) $("req-dialog").showModal();
+}
+$("rd-close").addEventListener("click", () => $("req-dialog").close());
+
+// ------------------------------------------------------------------ shop view (what a shop sees)
+let shopView = null;
+const shopViewFill = () => {
+  const sel = $("v-shop"), keep = sel.value;
+  sel.replaceChildren(...shops.map((s) => h("option", { value: s.id, text: s.name })));
+  sel.value = shops.some((s) => s.id === keep) ? keep : (shops[0] ? shops[0].id : "");
+  fillViewUsers();
+};
+function fillViewUsers() {
+  const shop = shops.find((s) => s.id === $("v-shop").value);
+  const mine = users.filter((u) => shop && u.shopId === shop.id);
+  const sel = $("v-user"), keep = sel.value;
+  sel.replaceChildren(h("option", { value: "", text: "All users of this shop" }), ...mine.map((u) => h("option", { value: u.email, text: u.email })));
+  sel.value = mine.some((u) => u.email === keep) ? keep : "";
+  $("v-lang").value = (shop && shop.language) || "en";
+}
+async function openShopView() { await loadShops().catch(() => {}); shopViewFill(); await loadShopView(); }
+
+async function loadShopView() {
+  const shop = shops.find((s) => s.id === $("v-shop").value);
+  const msg = $("v-msg"), banner = $("v-banner"); msg.hidden = true; banner.hidden = true;
+  if (!shop) { msg.textContent = "No shop yet: add one in the Shops tab."; msg.hidden = false; $("v-root").replaceChildren(); return; }
+  const u = $("v-user").value ? users.find((x) => x.email === $("v-user").value) : null;
+  const keys = (u ? u.brands : shop.brands) || [];
+  const tier = shop.priceTier, cur = shop.currency;
+  setLang($("v-lang").value);
+  try {
+    const [metaSnap, ...rest] = await Promise.all([
+      getDoc(doc(db, "stock", "meta")),
+      ...keys.map((k) => getDoc(doc(db, "stock", `items__${k}`))),
+      ...keys.map((k) => getDoc(doc(db, "prices", `${tier}__${k}`))),
+      ...keys.map((k) => getDoc(doc(db, "reserved", k)))
+    ]);
+    const n = keys.length, itemSnaps = rest.slice(0, n), priceSnaps = rest.slice(n, 2 * n), resSnaps = rest.slice(2 * n);
+    const items = [], prices = {}, reserved = {}, brands = [];
+    keys.forEach((k, i) => {
+      if (itemSnaps[i].exists()) {
+        const d = itemSnaps[i].data(); brands.push({ key: k, name: d.brand || k });
+        for (const it of d.items || []) items.push({ ...it, brand: d.brand || k, brandKey: k });
+      }
+      if (priceSnaps[i].exists()) Object.assign(prices, priceSnaps[i].data().prices || {});
+      if (resSnaps[i].exists()) Object.assign(reserved, resSnaps[i].data().map || {});
+    });
+    brands.sort((a, b) => a.name.localeCompare(b.name));
+    const meta = metaSnap.exists() ? metaSnap.data() : null;
+    const when = meta && (meta.stockRefreshedAt || meta.generatedAt);
+    banner.replaceChildren(h("b", { text: "Previewing: " }), `${shop.name} · ${tier} · ${u ? u.email : "all users"} · brands: ${keys.map(brandLabel).join(", ") || "none"}`,
+      when ? h("span", {}, " · ", h("b", { text: "Stock as of " }), dateLabel(when)) : null);
+    banner.hidden = false;
+    const warn = [];
+    if (shop.active === false) warn.push("This shop is inactive: its users cannot sign in.");
+    if (u && u.active === false) warn.push("This user is inactive.");
+    if (!keys.length) warn.push("No brand is enabled here: this user sees nothing.");
+    else if (!items.length) warn.push("Nothing is published for these brands yet.");
+    if (warn.length) { msg.textContent = warn.join(" "); msg.className = "msg msg-warn"; msg.hidden = false; }
+    if (!shopView) shopView = createStockView($("v-root"), { cart: null });
+    shopView.setData({ items, prices, reserved, brands, currency: cur }, true);
+  } catch (e) {
+    console.error(e); msg.textContent = `Could not load the view: ${e.code || e.message}`; msg.className = "msg msg-error"; msg.hidden = false;
+  }
+}
+$("v-shop").addEventListener("change", () => { fillViewUsers(); loadShopView(); });
+$("v-user").addEventListener("change", loadShopView);
+$("v-lang").addEventListener("change", () => { setLang($("v-lang").value); if (shopView) shopView.render(); loadShopView(); });
+$("v-refresh").addEventListener("click", loadShopView);
 
 // ------------------------------------------------------------------ start
 onAuthStateChanged(auth, async (user) => {
@@ -400,4 +619,5 @@ onAuthStateChanged(auth, async (user) => {
   $("who").textContent = emailKey(user.email);
   show("app");
   try { await loadShops(); } catch (e) { console.error(e); toast(`Could not load shops: ${e.code || e.message}`, true); }
+  loadRequests().catch(() => {});   // fills the badge on the Requests tab
 });

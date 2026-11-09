@@ -14,8 +14,16 @@ if errorlevel 1 (
 )
 
 %PY% export_stock.py
+if errorlevel 1 (
+  echo.
+  echo The export did not finish. Read the message above.
+  pause
+  exit /b 1
+)
+
 echo.
-echo When the report above looks right, open the portal Admin page, tab "Stock upload",
-echo and choose tools\output\stock.json
+echo Opening the folder with stock.json selected.
+echo Drag it onto the box in the portal Admin page, tab "Stock upload", or use "Choose file".
+explorer /select,"%~dp0output\stock.json"
 echo.
 pause

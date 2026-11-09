@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com; frame-src https://m-dealer-portal.firebaseapp.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.cloudfunctions.net https://*.run.app; frame-src https://m-dealer-portal.firebaseapp.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>M · Admin</title>
 <link rel="icon" href="assets/img/icon-64.png">
 <link rel="stylesheet" href="assets/css/app.css">
@@ -27,6 +27,8 @@
     <a class="brand" href="./"><img src="assets/img/logo-white.png" alt="M"><span class="portal-name">Admin</span></a>
     <nav class="tabs" role="tablist" aria-label="Admin sections">
       <button role="tab" id="tab-shops" aria-selected="true" aria-controls="panel-shops">Shops</button>
+      <button role="tab" id="tab-requests" aria-selected="false" aria-controls="panel-requests">Requests <span id="req-badge" class="count-pill" hidden>0</span></button>
+      <button role="tab" id="tab-view" aria-selected="false" aria-controls="panel-view">Shop view</button>
       <button role="tab" id="tab-stock" aria-selected="false" aria-controls="panel-stock">Stock upload</button>
     </nav>
     <span class="spacer"></span>
@@ -50,6 +52,39 @@
       <p id="shops-empty" class="count" hidden>No shop yet. Add the first one.</p>
     </section>
 
+    <!-- REQUESTS -->
+    <section id="panel-requests" role="tabpanel" aria-labelledby="tab-requests" hidden>
+      <div class="h-row"><h2>Requests</h2><button id="req-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button></div>
+      <div class="chips" role="group" aria-label="Filter requests" id="req-filters">
+        <button class="chip" type="button" data-f="open" aria-pressed="true">Open (reserved)</button>
+        <button class="chip" type="button" data-f="invoiced" aria-pressed="false">Invoiced</button>
+        <button class="chip" type="button" data-f="closed" aria-pressed="false">Expired / cancelled / released</button>
+        <button class="chip" type="button" data-f="all" aria-pressed="false">All</button>
+      </div>
+      <div class="card" style="overflow:auto"><table class="t stack" id="req-table">
+        <thead><tr><th>Request</th><th>Shop</th><th>Lines</th><th class="num">Subtotal</th><th>Held until</th><th>Status</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
+      <p id="req-empty" class="count" hidden>No request here.</p>
+      <p class="hint" style="margin-top:10px"><button id="req-export-open" class="btn btn-ghost btn-sm" type="button">Download all open requests (JSON)</button>
+        The JSON format is described in REQUESTS-SCHEMA.md and is what the shipment, invoice and ledger automations read.</p>
+    </section>
+
+    <!-- SHOP VIEW -->
+    <section id="panel-view" role="tabpanel" aria-labelledby="tab-view" hidden>
+      <div class="h-row"><h2>Shop view</h2></div>
+      <div class="msg msg-info">This is exactly what the chosen shop (or user) sees on the Stock page: the same brands, prices, languages and reservations. Nothing here can be changed.</div>
+      <div class="toolbar">
+        <label class="sr-only" for="v-shop">Shop</label><select id="v-shop" class="sel"></select>
+        <label class="sr-only" for="v-user">User</label><select id="v-user" class="sel"></select>
+        <label class="sr-only" for="v-lang">Language</label>
+        <select id="v-lang" class="sel"><option value="en">English</option><option value="fr">Français</option><option value="it">Italiano</option></select>
+        <button id="v-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button>
+      </div>
+      <div id="v-banner" class="banner" style="border-radius:var(--radius) var(--radius) 0 0" hidden></div>
+      <div id="v-msg" class="msg msg-info" hidden></div>
+      <div id="v-root"></div>
+    </section>
+
     <!-- STOCK -->
     <section id="panel-stock" role="tabpanel" aria-labelledby="tab-stock" hidden>
       <div class="h-row"><h2>Stock upload</h2></div>
@@ -62,10 +97,16 @@
           <h3 style="margin-bottom:10px">Publish a new stock file</h3>
           <ol style="margin:0 0 12px;padding-left:20px;color:var(--muted)">
             <li>In Excel, refresh the Stock sheet and save the workbook.</li>
-            <li>Double-click <code>tools\run-export.bat</code>.</li>
-            <li>Choose <code>tools\output\stock.json</code> below.</li>
+            <li>Double-click <code>tools\run-export.bat</code>. It opens the folder with <code>stock.json</code> selected.</li>
+            <li>Drag <code>stock.json</code> onto the box below, or choose it.</li>
           </ol>
-          <div class="drop"><label class="field" style="margin:0"><span class="lbl">stock.json</span><input id="file" type="file" accept=".json,application/json"></label></div>
+          <div id="drop" class="drop" tabindex="0" role="button" aria-label="Drop stock.json here or press Enter to choose the file">
+            <p style="margin:0 0 8px"><b>Drag stock.json here</b></p>
+            <p class="hint" style="margin:0 0 10px">or</p>
+            <button id="pick" class="btn btn-primary" type="button">Choose file…</button>
+            <input id="file" type="file" accept=".json,application/json" hidden>
+            <p id="drop-name" class="hint" style="margin:10px 0 0"></p>
+          </div>
         </div>
       </div>
       <div id="preview" class="card pad" style="margin-top:16px" hidden>
@@ -108,6 +149,13 @@
       <button type="submit" class="btn btn-primary" id="dlg-save">Save</button>
     </div>
   </form>
+</dialog>
+
+<!-- Request detail -->
+<dialog id="req-dialog" aria-labelledby="rd-title">
+  <div class="dh"><span id="rd-title">Request</span><button type="button" class="btn btn-ghost-light btn-sm" id="rd-close">Close</button></div>
+  <div class="db" id="rd-body"></div>
+  <div class="df" id="rd-actions"></div>
 </dialog>
 
 <script type="module" src="assets/js/admin.js"></script>
