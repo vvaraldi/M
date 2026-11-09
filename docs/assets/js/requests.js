@@ -102,7 +102,7 @@ export function renderCartView(root, ctx) {
     h("div", { class: "card pad" },
       h("div", { class: "cline chead", "aria-hidden": "true" }, h("span", { text: t("r_title") }), h("span", { text: t("qty") }), h("span", { text: t("r_total") }), h("span")),
       ...lineEls,
-      h("div", { class: "total" }, h("span", { text: t("r_sub") }), h("span", { text: money(total.sub, ctx.currency) })),
+      h("div", { class: "total" }, h("span", { text: t("r_sub") }), h("span", { text: total.tbd && !(total.sub > 0) ? t("r_tbd") : money(total.sub, ctx.currency) })),
       total.tbd ? h("p", { class: "hint", text: t("r_tbd_note") }) : null),
     form));
 }
@@ -157,8 +157,8 @@ export async function renderHistory(root, ctx) {
         h("span", { class: "hint", text: ` × ${qtyFormat(l.qty)} ${unitLabel(l.unit, l.qty)}` }),
         h("span", { class: "right", text: l.priceTbd ? t("r_tbd") : money(l.lineTotal, r.currency) })))),
       h("div", { class: "req-foot" },
-        h("span", { class: "hint", text: t(plural(r.lines.length), { n: r.lines.length }) + (r.hasTbd ? " · " + t("h_plus_tbd") : "") }),
-        h("b", { text: t("r_sub") + ": " + money(r.subtotal, r.currency) }),
+        h("span", { class: "hint", text: t(plural(r.lines.length), { n: r.lines.length }) + (r.hasTbd && r.subtotal > 0 ? " · " + t("h_plus_tbd") : "") }),
+        h("b", { text: t("r_sub") + ": " + (r.hasTbd && !(r.subtotal > 0) ? t("r_tbd") : money(r.subtotal, r.currency)) }),
         cancel)));
   }
 }

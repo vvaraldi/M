@@ -63,6 +63,20 @@ test("CSV is spreadsheet-safe: BOM, quoting, one row per line", () => {
   const q = requestCsv({ ...request, shopName: 'A "quoted", name' }, priv); assert.ok(q.includes('"A ""quoted"", name"'));
 });
 
+test("a request with only unpriced lines says 'to be confirmed', never a $0.00 subtotal", () => {
+  const { request, priv } = sample("fr", { lines: [{ brandKey: "skitrab", itemId: "n1", qty: 1 }] });
+  assert.equal(request.subtotal, 0); assert.equal(request.hasTbd, true);
+  const shop = buildShopEmail(request);
+  assert.ok(!/0,00/.test(shop.html) && !/0,00/.test(shop.text), "no zero subtotal in the shop email");
+  assert.ok(shop.html.includes("à confirmer"));
+  const owner = buildOwnerEmail(request, priv);
+  assert.ok(owner.subject.includes("price TBD") && !owner.subject.includes("$0.00"), owner.subject);
+  assert.ok(owner.html.includes("to be priced") && !owner.html.includes("$0.00 "));
+  // a mixed request still shows the priced subtotal plus the note
+  const mixed = sample("en"); assert.ok(buildShopEmail(mixed.request).html.includes("$"));
+  assert.ok(buildOwnerEmail(mixed.request, mixed.priv).subject.includes("+ TBD"));
+});
+
 test("reminder email names the release date", () => {
   const { request } = sample("fr"); const e = buildReminderEmail(request);
   assert.ok(e.subject.includes("15 novembre 2026")); assert.ok(e.text.includes("R-0042"));

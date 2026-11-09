@@ -460,7 +460,7 @@ function renderRequests() {
       h("td", {}, h("b", { text: r.number }), h("br"), h("span", { class: "hint", text: fmtDay(r.createdAt) })),
       h("td", {}, r.shopName, h("br"), h("span", { class: "hint", text: r.userEmail })),
       h("td", { text: String(r.lines.length) }),
-      h("td", { class: "num", text: `${money(r.subtotal, r.currency)}${r.hasTbd ? " +" : ""}` }),
+      h("td", { class: "num", text: r.hasTbd && !(r.subtotal > 0) ? "to be priced" : `${money(r.subtotal, r.currency)}${r.hasTbd ? " +" : ""}` }),
       h("td", { class: r.status === "reserved" && ends && ends.getTime() < soon ? "warn-text" : "", text: r.status === "reserved" ? fmtDay(r.expiresAt) : "–" }),
       h("td", {}, h("span", { class: "status " + (STATUS_CLASS[r.status] || "s-can"), text: STATUS_TEXT[r.status] || r.status })),
       h("td", {}, b)));
@@ -541,7 +541,7 @@ async function openRequest(id) {
         h("td", { class: "num", text: `${lo.Eastman || 0} / ${lo.CDEC || 0}` }));
     })));
   $("rd-body").replaceChildren(kv, h("div", { style: "overflow:auto" }, tbl),
-    h("p", { style: "margin-top:10px" }, h("b", { text: `Subtotal (before tax): ${money(r.subtotal, r.currency)}` }), r.hasTbd ? "  + lines to price" : ""));
+    h("p", { style: "margin-top:10px" }, h("b", { text: `Subtotal (before tax): ${r.hasTbd && !(r.subtotal > 0) ? "to be priced" : money(r.subtotal, r.currency)}` }), r.hasTbd && r.subtotal > 0 ? "  + lines to price" : ""));
 
   const mkAction = (a) => {
     const [label, ask, cls] = ACTION_TEXT[a];

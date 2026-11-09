@@ -12,6 +12,10 @@ export function money(v, currency, lang = "en") {
 export const dateLong = (d, lang = "en") => new Intl.DateTimeFormat(LOC[lang] || "en-CA", { dateStyle: "long", timeZone: TZ }).format(d);
 export const dateTime = (d, lang = "en") => new Intl.DateTimeFormat(LOC[lang] || "en-CA", { dateStyle: "medium", timeStyle: "short", timeZone: TZ }).format(d);
 
+/** True when nothing in the request has a price yet: the subtotal is then "to be confirmed", not $0.00. */
+const allTbd = (r) => !!r.hasTbd && !(r.subtotal > 0);
+const subtotalText = (r, word, lang) => (allTbd(r) ? word : money(r.subtotal, r.currency, lang));
+
 const T = {
   en: {
     subj: "Your request {num} is saved", hello: "Hello,",
@@ -58,7 +62,7 @@ function shopTable(r, tx, lang) {
   return `<table style="border-collapse:collapse;width:100%;font-size:14px"><thead><tr style="background:#004D71;color:#fff">
 <th style="padding:7px 8px;text-align:left">${esc(tx.h_item)}</th><th style="padding:7px 8px;text-align:left">${esc(tx.h_size)}</th><th style="padding:7px 8px;text-align:right">${esc(tx.h_qty)}</th><th style="padding:7px 8px;text-align:right">${esc(tx.h_price)}</th><th style="padding:7px 8px;text-align:right">${esc(tx.h_total)}</th></tr></thead>
 <tbody>${rows}</tbody>
-<tfoot><tr><td colspan="4" style="padding:8px;text-align:right;font-weight:600">${esc(tx.subtotal)}</td><td style="padding:8px;text-align:right;font-weight:600">${esc(money(r.subtotal, r.currency, lang))}</td></tr></tfoot></table>${r.hasTbd ? `<p style="font-size:13px;color:#5a6f7a">${esc(tx.tbd_note)}</p>` : ""}`;
+<tfoot><tr><td colspan="4" style="padding:8px;text-align:right;font-weight:600">${esc(tx.subtotal)}</td><td style="padding:8px;text-align:right;font-weight:600">${esc(subtotalText(r, tx.tbd, lang))}</td></tr></tfoot></table>${r.hasTbd ? `<p style="font-size:13px;color:#5a6f7a">${esc(tx.tbd_note)}</p>` : ""}`;
 }
 function details(r, tx, lang, withHeader = true) {
   const b = [];
@@ -79,7 +83,7 @@ function plainLines(r, lang) {
 export function buildShopEmail(r) {
   const lang = T[r.language] ? r.language : "en", tx = T[lang], date = dateLong(r.expiresAt, lang);
   const html = shell(`<p>${esc(tx.hello)}</p><p>${esc(fill(tx.intro, { num: r.number, date }))}</p>${shopTable(r, tx, lang)}${details(r, tx, lang)}<p style="color:#5a6f7a;font-size:13px">${esc(tx.cancel_hint)}</p><p>${esc(tx.sig)}</p>`);
-  const text = `${tx.hello}\n\n${fill(tx.intro, { num: r.number, date })}\n\n${plainLines(r, lang)}\n${tx.subtotal}: ${money(r.subtotal, r.currency, lang)}${r.hasTbd ? "\n" + tx.tbd_note : ""}\n\n${tx.cancel_hint}\n${tx.sig}`;
+  const text = `${tx.hello}\n\n${fill(tx.intro, { num: r.number, date })}\n\n${plainLines(r, lang)}\n${tx.subtotal}: ${subtotalText(r, tx.tbd, lang)}${r.hasTbd ? "\n" + tx.tbd_note : ""}\n\n${tx.cancel_hint}\n${tx.sig}`;
   return { subject: fill(tx.subj, { num: r.number }), html, text };
 }
 
@@ -132,13 +136,13 @@ export function buildOwnerEmail(r, priv) {
 <p style="margin:2px 0">Held until <b>${esc(dateLong(r.expiresAt, "en"))}</b>${cdec ? ` · <b>${cdec}</b> line(s) with stock at CDEC` : ""}</p>
 ${details(r, T.en, "en")}
 <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:10px"><thead><tr style="background:#004D71;color:#fff"><th style="padding:6px 8px;text-align:left">Brand</th><th style="padding:6px 8px;text-align:left">Code</th><th style="padding:6px 8px;text-align:left">Item</th><th style="padding:6px 8px;text-align:right">Qty</th><th style="padding:6px 8px;text-align:right">Total</th><th style="padding:6px 8px;text-align:left">Stock E=Eastman C=CDEC</th></tr></thead><tbody>${rows}</tbody></table>
-<p style="margin-top:10px"><b>Subtotal (before tax): ${esc(money(x.subtotal, x.currency, "en"))}</b>${x.hasPriceTbd ? " <span style=\"color:#8a5a00\">+ lines to price (TBD)</span>" : ""}</p>
+<p style="margin-top:10px"><b>Subtotal (before tax): ${esc(subtotalText(r, "to be priced", "en"))}</b>${x.hasPriceTbd && !allTbd(r) ? " <span style=\"color:#8a5a00\">+ lines to price (TBD)</span>" : ""}</p>
 <p style="color:#5a6f7a;font-size:12px">CSV and JSON attached. Manage it in the portal Admin page, tab Requests.</p>`);
   const text = `New request ${x.number} from ${x.shop.name} (${x.contact.email})\nHeld until ${dateLong(r.expiresAt, "en")}\n\n` +
     x.lines.map((l) => `- [${l.brand}] ${l.code} ${l.description} ${l.size}: ${l.qty} ${l.unit}${l.priceTbd ? " (price TBD)" : " = " + money(l.lineTotal, x.currency, "en")}  [Eastman ${l.locations.Eastman || 0}, CDEC ${l.locations.CDEC || 0}]`).join("\n") +
-    `\n\nSubtotal (before tax): ${money(x.subtotal, x.currency, "en")}${x.hasPriceTbd ? " + lines to price" : ""}`;
+    `\n\nSubtotal (before tax): ${subtotalText(r, "to be priced", "en")}${x.hasPriceTbd && !allTbd(r) ? " + lines to price" : ""}`;
   return {
-    subject: `New request ${x.number}: ${x.shop.name} (${x.lines.length} line${x.lines.length === 1 ? "" : "s"}, ${money(x.subtotal, x.currency, "en")}${x.hasPriceTbd ? " + TBD" : ""})`,
+    subject: `New request ${x.number}: ${x.shop.name} (${x.lines.length} line${x.lines.length === 1 ? "" : "s"}, ${allTbd(r) ? "price TBD" : money(x.subtotal, x.currency, "en") + (x.hasPriceTbd ? " + TBD" : "")})`,
     html, text,
     attachments: [
       { filename: `${x.number}.csv`, content: requestCsv(r, priv), contentType: "text/csv; charset=utf-8" },

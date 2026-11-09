@@ -185,7 +185,7 @@ function updateCartBar() {
   if (n > 0) {
     const one = new Intl.PluralRules(getLang()).select(n) === "one";
     $("cartbar-text").replaceChildren(h("b", {}, t(one ? "cartbar_one" : "cartbar_other", { n })),
-      " · ", money(sub, profile.currency), tbd ? " " + t("cartbar_tbd") : "");
+      " · ", tbd && !(sub > 0) ? t("r_tbd") : money(sub, profile.currency), tbd && sub > 0 ? " " + t("cartbar_tbd") : "");
     $("cartbar-btn").textContent = t("cartbar_review");
   }
 }
