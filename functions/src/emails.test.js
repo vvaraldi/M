@@ -49,11 +49,38 @@ test("owner email carries CSV and JSON and the warehouse split; shop email does 
 
 test("export format is stable and complete (schema 1)", () => {
   const { request, priv } = sample("en"); const x = exportShape(request, priv);
-  assert.deepEqual(Object.keys(x), ["schema", "number", "status", "createdAt", "expiresAt", "shop", "contact", "currency", "priceTier", "shipTo", "po", "notes", "shipDate", "lines", "subtotal", "hasPriceTbd"]);
-  assert.deepEqual(Object.keys(x.lines[0]), ["brand", "code", "sku", "description", "size", "color", "condition", "unit", "qty", "unitPrice", "lineTotal", "priceTbd", "estimatedPrice", "locations"]);
+  assert.deepEqual(Object.keys(x), ["schema", "number", "status", "createdAt", "expiresAt", "shop", "contact", "currency", "priceTier", "shipTo", "po", "notes", "shipDate", "stockAsOf", "lines", "subtotal", "hasPriceTbd"]);
+  assert.deepEqual(Object.keys(x.shop), ["id", "name", "customerId", "country", "province", "taxMode", "billTo", "addresses"]);
+  assert.deepEqual(Object.keys(x.lines[0]), ["brand", "code", "sku", "description", "size", "color", "condition", "unit", "qty", "unitPrice", "lineTotal", "priceTbd", "estimatedPrice", "locations", "stock", "heldByPortal"]);
   assert.equal(x.createdAt, NOW.toISOString()); assert.deepEqual(x.lines[0].locations, { Eastman: 1, CDEC: 4 });
   assert.equal(x.lines[1].priceTbd, true); assert.equal(x.lines[1].unitPrice, null);
   JSON.parse(JSON.stringify(x));
+});
+
+test("export includes customer details, per-warehouse stock and what the portal already holds", () => {
+  const NOW2 = new Date("2026-11-08T15:00:00Z");
+  const { request, priv } = planSubmit({
+    user: { email: "b@s.test", active: true, shopId: "s1", brands: ["skitrab"], currency: "CAD", priceTier: "SHOP_CAD", language: "en" },
+    shop: { name: "Shop", addresses: [{ label: "A", text: "1 Rd" }] },
+    input: { lines: [{ brandKey: "skitrab", itemId: "a1", qty: 2 }], addressIndex: 0 },
+    itemsDocs: { skitrab: { brand: "SkiTrab", items: [{ id: "a1", code: "1", sku: "2", description: "GARA", size: "162", condition: "New", unit: "pair", available: 5, minQty: 1 }] } },
+    priceDocs: { skitrab: { prices: { a1: { p: 10 } } } }, reservedDocs: { skitrab: { map: { a1: 1 } } },
+    locations: { a1: { Eastman: 2, CDEC: 3 } },
+    stockDetail: { a1: { Eastman: { onHand: 2, reserved: 0, available: 2 }, CDEC: { onHand: 5, reserved: 2, available: 3 } } }, stockAsOf: "2026-11-08T17:53",
+    shopPrivate: { customerId: "C008", country: "Canada", province: "QC", taxMode: "QC", billTo: "9 Bill St" }, now: NOW2, seq: 5
+  });
+  const x = exportShape(request, priv);
+  assert.equal(x.shop.customerId, "C008"); assert.equal(x.shop.taxMode, "QC"); assert.equal(x.shop.province, "QC"); assert.equal(x.shop.billTo, "9 Bill St");
+  assert.deepEqual(x.shop.addresses, [{ label: "A", text: "1 Rd" }]);
+  assert.equal(x.stockAsOf, "2026-11-08T17:53");
+  assert.deepEqual(x.lines[0].stock.CDEC, { onHand: 5, reserved: 2, available: 3 });
+  assert.equal(x.lines[0].heldByPortal, 3);
+  const csv = requestCsv(request, priv).trim().split("\r\n");
+  assert.ok(csv[0].endsWith("held_by_portal") && csv[0].includes("cdec_on_hand"));
+  assert.ok(csv[1].includes("C008,QC,QC,2,0,2,5,2,3,3"), csv[1]);
+  // old requests (no private details) still export cleanly
+  const old = exportShape(request, { lines: {} });
+  assert.equal(old.shop.customerId, ""); assert.deepEqual(old.lines[0].stock, {}); assert.equal(old.lines[0].heldByPortal, null);
 });
 
 test("CSV is spreadsheet-safe: BOM, quoting, one row per line", () => {

@@ -13,7 +13,7 @@ import { exportShape, requestCsv } from "./requestexport.js";
 const $ = (id) => document.getElementById(id);
 const show = (name) => ["loading", "noaccess", "app"].forEach((v) => { $("view-" + v).hidden = v !== name; });
 
-let shops = [], users = [];
+let shops = [], users = [], shopsPriv = {};   // shopsPriv: shopId -> private customer details (owner only)
 let brandNames = {};           // key -> display name, from admin/brands and from what shops already use
 let editing = null;            // { id|null, users:[{email,userActive,existing,override:null|[keys]}], removed:[email] }
 let pendingFile = null;
@@ -59,11 +59,12 @@ $("signout").addEventListener("click", () => signOut(auth));
 
 // ------------------------------------------------------------------ shops
 async function loadShops() {
-  const [s, u, b] = await Promise.all([
-    getDocs(collection(db, "shops")), getDocs(collection(db, "users")), getDoc(doc(db, "admin", "brands"))
+  const [s, u, b, p] = await Promise.all([
+    getDocs(collection(db, "shops")), getDocs(collection(db, "users")), getDoc(doc(db, "admin", "brands")), getDocs(collection(db, "shopsPrivate"))
   ]);
   shops = s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, c) => a.name.localeCompare(c.name));
   users = u.docs.map((d) => ({ ...d.data(), email: d.id }));
+  shopsPriv = Object.fromEntries(p.docs.map((d) => [d.id, d.data()]));
   brandNames = {};
   if (b.exists() && b.data().brands) Object.assign(brandNames, b.data().brands);
   // brands already granted to a shop or user stay selectable even if no stock exists for them right now
@@ -85,7 +86,7 @@ function renderShops() {
     edit.addEventListener("click", () => openEditor(s));
     const brands = Array.isArray(s.brands) ? (s.brands.length ? s.brands.map(brandLabel).join(", ") : "none") : "not set";
     body.append(h("tr", {},
-      h("td", {}, h("b", { text: s.name })),
+      h("td", {}, h("b", { text: s.name }), (shopsPriv[s.id] && shopsPriv[s.id].customerId) ? h("span", { class: "hint", style: "display:block", text: shopsPriv[s.id].customerId }) : null),
       h("td", { text: `${s.priceType || "SHOP"} · ${s.currency}` }),
       h("td", { class: Array.isArray(s.brands) ? "" : "warn-text", text: brands }),
       h("td", { text: (s.language || "en").toUpperCase() }),
@@ -194,6 +195,9 @@ function openEditor(shop) {
   $("f-type").value = shop ? (shop.priceType || "SHOP") : "SHOP";
   $("f-lang").value = shop ? (shop.language || "en") : "en";
   $("f-active").checked = shop ? shop.active !== false : true;
+  const pv = (shop && shopsPriv[shop.id]) || {};
+  $("f-custid").value = pv.customerId || ""; $("f-tax").value = pv.taxMode || ""; $("f-country").value = pv.country || "";
+  $("f-prov").value = pv.province || ""; $("f-bill").value = pv.billTo || "";
   const addrs = shop && Array.isArray(shop.addresses) ? shop.addresses : [];
   $("addresses").replaceChildren(...[0, 1, 2].map((i) => addressBlock(i, addrs[i] || {})));
   $("f-newuser").value = ""; $("dlg-error").hidden = true;
@@ -233,6 +237,11 @@ $("shop-form").addEventListener("submit", async (e) => {
   if (!editing.brands.length) { dlgError("Tick at least one brand this shop may see."); return; }
   const bad = editing.users.find((u) => u.override && !u.override.length);
   if (bad) { dlgError(`Pick at least one brand for ${bad.email}, or choose "Brands: same as shop".`); return; }
+  const customerId = $("f-custid").value.trim().toUpperCase();
+  if (customerId && !/^[A-Z0-9-]{1,12}$/.test(customerId)) { dlgError("The workbook customer number should look like C008."); return; }
+  const dup = Object.entries(shopsPriv).find(([id, v]) => customerId && v.customerId === customerId && id !== editing.id);
+  if (dup) { const other = shops.find((s) => s.id === dup[0]); dlgError(`${customerId} is already used by ${other ? other.name : "another shop"}.`); return; }
+  const priv = { customerId, taxMode: $("f-tax").value, country: $("f-country").value.trim(), province: $("f-prov").value.trim(), billTo: $("f-bill").value.trim() };
   const addresses = [0, 1, 2].map((i) => ({ label: $(`a-label-${i}`).value.trim(), text: $(`a-text-${i}`).value.trim() })).filter((a) => a.text);
   const active = $("f-active").checked, language = $("f-lang").value;
   const ref = editing.id ? doc(db, "shops", editing.id) : doc(collection(db, "shops"));
@@ -242,6 +251,7 @@ $("shop-form").addEventListener("submit", async (e) => {
   try {
     const batch = writeBatch(db);
     batch.set(ref, { name, currency, priceType: type, priceTier: tier, brands: shopBrands, language, active, addresses, updatedAt: serverTimestamp() }, { merge: true });
+    batch.set(doc(db, "shopsPrivate", shopId), { ...priv, updatedAt: serverTimestamp() }, { merge: true });   // private: owner only
     for (const u of editing.users) {
       const data = {
         email: u.email, shopId, shopName: name, currency, priceType: type, priceTier: tier,
@@ -308,11 +318,18 @@ function sanitize(data) {
     }
   }
   const locations = (data.private && data.private.locations) || {};
+  // per warehouse: on hand, held by Excel draft invoices, available (kept for the owner's request export)
+  const stock = {}, num = (x) => (typeof x === "number" && isFinite(x) ? x : 0);
+  for (const [id, perLoc] of Object.entries((data.private && data.private.stock) || {})) {
+    if (!ids.has(id) || !perLoc || typeof perLoc !== "object") continue;
+    stock[id] = {};
+    for (const [loc, v] of Object.entries(perLoc)) if (["Eastman", "CDEC", "Other"].includes(loc) && v) stock[id][loc] = { onHand: num(v.onHand), reserved: num(v.reserved), available: num(v.available) };
+  }
   for (const key of Object.keys(brands)) {
     const bytes = JSON.stringify(items.filter((i) => brandKey(i.brand) === key)).length;
     if (bytes > 900000) throw new Error(`Brand ${brands[key].name} is too large for one document (over 900 KB).`);
   }
-  return { items, prices, locations, brands };
+  return { items, prices, locations, stock, brands };
 }
 
 /** Read, check and preview a chosen or dropped stock.json. */
@@ -337,7 +354,8 @@ async function processFile(file) {
       ["File", file.name], ["Season", data.season || "–"], ["Stock sheet refreshed", data.stockRefreshedAt ? fmtDateTime(data.stockRefreshedAt) : "–"],
       ["Items", clean.items.length], ["Brands", Object.values(clean.brands).map((b) => `${b.name} ${b.count}`).join(", ")],
       ["Without a SHOP_CAD price", unpriced],
-      ["Price tiers", Object.keys(clean.prices).join(", ") || "none"], ["Items with a location (admin only)", Object.keys(clean.locations).length]
+      ["Price tiers", Object.keys(clean.prices).join(", ") || "none"], ["Items with a location (admin only)", Object.keys(clean.locations).length],
+      ["Items with on hand / reserved detail", Object.keys(clean.stock).length + (Object.keys(clean.stock).length ? "" : "  (export again with the current tools\\export_stock.py)")]
     ];
     for (const [k, v] of rows) kv.append(h("dt", { text: k }), h("dd", { text: String(v) }));
     $("preview").hidden = false;
@@ -414,7 +432,7 @@ $("publish").addEventListener("click", async () => {
     const known = brandsDoc.exists() && brandsDoc.data().brands ? brandsDoc.data().brands : {};
     for (const [key, b] of Object.entries(clean.brands)) known[key] = b.name;
     batch.set(doc(db, "admin", "brands"), { brands: known });
-    batch.set(doc(db, "admin", "locations"), { locations: clean.locations, updatedAt: serverTimestamp() });
+    batch.set(doc(db, "admin", "locations"), { locations: clean.locations, stock: clean.stock, updatedAt: serverTimestamp() });
 
     // no stale documents left behind (old single-brand documents, brands or tiers that disappeared)
     existingStock.docs.forEach((d) => { if (!keepStock.has(d.id)) batch.delete(d.ref); });
@@ -523,13 +541,17 @@ async function openRequest(id) {
   const info = [
     ["Status", STATUS_TEXT[r.status] || r.status], ["Contact", r.userEmail], ["Sent", fmtDay(r.createdAt)],
     ["Held until", r.status === "reserved" ? fmtDay(r.expiresAt) : "–"], ["Prices", `${r.priceTier} · ${r.currency}`],
+    ["Customer no.", (priv && priv.shop && priv.shop.customerId) || "(not set: add it on the shop)"],
+    ["Tax mode · province", priv && priv.shop ? [priv.shop.taxMode || "not set", priv.shop.province || "–"].join(" · ") : "–"],
+    ["Billing address", (priv && priv.shop && priv.shop.billTo) || "–"],
+    ["Stock as of", priv && priv.stockAsOf ? fmtDateTime(priv.stockAsOf) : "–"],
     ["Ship to", r.shipTo ? [r.shipTo.label, r.shipTo.text].filter(Boolean).join(" / ") : "(none on file)"],
     ["Requested ship date", r.shipDate || "–"], ["PO", r.po || "–"], ["Notes", r.notes || "–"],
     ["Emails", r.emails ? `owner ${r.emails.owner}, shop ${r.emails.shop}${r.emails.error ? "\nProblem: " + r.emails.error : ""}` : "–"]
   ];
   const kv = h("dl", { class: "kv", style: "margin-bottom:14px" }, ...info.flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { style: "white-space:pre-line", text: v })]));
   const tbl = h("table", { class: "t" },
-    h("thead", {}, h("tr", {}, ...["Brand", "Code", "Item", "Qty", "Unit price", "Total", "Stock E / C"].map((x, i) => h("th", { class: i > 2 ? "num" : "", text: x })))),
+    h("thead", {}, h("tr", {}, ...["Brand", "Code", "Item", "Qty", "Unit price", "Total", "Available E / C"].map((x, i) => h("th", { class: i > 2 ? "num" : "", text: x })))),
     h("tbody", {}, ...r.lines.map((l) => {
       const lo = loc[l.itemId] || {};
       return h("tr", {},
@@ -538,7 +560,10 @@ async function openRequest(id) {
         h("td", { class: "num", text: `${l.qty} ${l.unit}` }),
         h("td", { class: "num", text: l.priceTbd ? "TBD" : money(l.unitPrice, r.currency) + (l.unit === "m" ? " / m" : "") + (l.est ? " est." : "") }),
         h("td", { class: "num", text: l.priceTbd ? "–" : money(l.lineTotal, r.currency) }),
-        h("td", { class: "num", text: `${lo.Eastman || 0} / ${lo.CDEC || 0}` }));
+        h("td", { class: "num", title: "available (on hand, held by Excel drafts) per warehouse, as of the last upload", text: ["Eastman", "CDEC"].map((w) => {
+          const d = ((priv && priv.stock && priv.stock[l.itemId]) || {})[w];
+          return d ? `${d.available}` + (d.reserved ? ` (${d.onHand}, ${d.reserved} drafts)` : "") : `${lo[w] || 0}`;
+        }).join(" / ") }));
     })));
   $("rd-body").replaceChildren(kv, h("div", { style: "overflow:auto" }, tbl),
     h("p", { style: "margin-top:10px" }, h("b", { text: `Subtotal (before tax): ${r.hasTbd && !(r.subtotal > 0) ? "to be priced" : money(r.subtotal, r.currency)}` }), r.hasTbd && r.subtotal > 0 ? "  + lines to price" : ""));

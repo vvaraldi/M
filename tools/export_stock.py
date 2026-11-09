@@ -250,13 +250,18 @@ def main():
     merged = OrderedDict()
     for l in stock_lines:
         key = (l["sku"], l["condition"])
-        m = merged.setdefault(key, {**l, "available": 0.0, "locations": {}})
+        m = merged.setdefault(key, {**l, "available": 0.0, "locations": {}, "detail": {}})
         m["available"] += l["available"]
         m["locations"][l["location"]] = m["locations"].get(l["location"], 0) + l["available"]
+        # per warehouse: on hand, held by draft invoices in Excel ("Reserved"), and what is left ("Available")
+        d = m["detail"].setdefault(l["location"], {"onHand": 0.0, "reserved": 0.0, "available": 0.0})
+        d["onHand"] += l["onHand"] if l["onHand"] is not None else l["available"] + l["reserved"]
+        d["reserved"] += l["reserved"]
+        d["available"] += l["available"]
     n_lines_in = len(stock_lines)
     n_zero = sum(1 for m in merged.values() if m["available"] <= 0)
 
-    used_ids, items, prices, private_loc = set(), [], {t: {} for t in settings["priceTiers"]}, {}
+    used_ids, items, prices, private_loc, private_stock = set(), [], {t: {} for t in settings["priceTiers"]}, {}, {}
     rep = defaultdict(list)
     hide = set(settings.get("hideCategories", []))
     for (sku, cond), m in merged.items():
@@ -291,6 +296,8 @@ def main():
         }
         items.append(item)
         private_loc[iid] = {k: v for k, v in m["locations"].items() if v}
+        num_out = lambda v: int(v) if float(v).is_integer() else round(v, 2)
+        private_stock[iid] = {loc: {k: num_out(v) for k, v in d.items()} for loc, d in m["detail"].items() if any(d.values())}
         if len(m["locations"]) > 1:
             rep["merged_locations"].append(f'{m["description"]} {m["size"]} {cond}: ' +
                                            ", ".join(f"{k} {v:g}" for k, v in m["locations"].items()))
@@ -352,7 +359,7 @@ def main():
         "season": settings["currentSeasonLabel"],
         "items": items,
         "prices": prices,
-        "private": {"locations": private_loc},
+        "private": {"locations": private_loc, "stock": private_stock},
     }
 
     os.makedirs(args.out, exist_ok=True)

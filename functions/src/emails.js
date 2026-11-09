@@ -99,15 +99,20 @@ const iso = (d) => (d instanceof Date ? d.toISOString() : d == null ? null : Str
 
 /** The fixed export format (schema 1). Other tools (shipment email, invoice drafting, ledger) rely on it. */
 export function exportShape(r, priv) {
-  const loc = (priv && priv.lines) || {};
+  const loc = (priv && priv.lines) || {}, stock = (priv && priv.stock) || {}, held = (priv && priv.held) || {}, sp = (priv && priv.shop) || {};
   return {
     schema: 1, number: r.number, status: r.status, createdAt: iso(r.createdAt), expiresAt: iso(r.expiresAt),
-    shop: { id: r.shopId, name: r.shopName }, contact: { email: r.userEmail, language: r.language },
+    shop: {
+      id: r.shopId, name: r.shopName, customerId: sp.customerId || "", country: sp.country || "", province: sp.province || "",
+      taxMode: sp.taxMode || "", billTo: sp.billTo || "", addresses: sp.addresses || []
+    },
+    contact: { email: r.userEmail, language: r.language },
     currency: r.currency, priceTier: r.priceTier, shipTo: r.shipTo || null, po: r.po || "", notes: r.notes || "", shipDate: r.shipDate || null,
+    stockAsOf: (priv && priv.stockAsOf) || null,
     lines: r.lines.map((l) => ({
       brand: l.brand, code: l.code, sku: l.sku, description: l.description, size: l.size, color: l.color, condition: l.condition, unit: l.unit,
       qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, priceTbd: !!l.priceTbd, estimatedPrice: !!l.est,
-      locations: loc[l.itemId] || {}
+      locations: loc[l.itemId] || {}, stock: stock[l.itemId] || {}, heldByPortal: held[l.itemId] ?? null
     })),
     subtotal: r.subtotal, hasPriceTbd: !!r.hasTbd
   };
@@ -116,10 +121,13 @@ export function exportShape(r, priv) {
 const csvCell = (v) => { const s = v == null ? "" : String(v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 export function requestCsv(r, priv) {
   const x = exportShape(r, priv);
-  const head = ["request", "shop", "contact", "currency", "po", "ship_to", "brand", "code", "barcode", "description", "size", "color", "condition", "qty", "unit", "unit_price", "line_total", "price_tbd", "eastman", "cdec"];
+  const head = ["request", "shop", "contact", "currency", "po", "ship_to", "brand", "code", "barcode", "description", "size", "color", "condition", "qty", "unit", "unit_price", "line_total", "price_tbd", "eastman", "cdec",
+    "customer_id", "province", "tax_mode", "eastman_on_hand", "eastman_reserved", "eastman_available", "cdec_on_hand", "cdec_reserved", "cdec_available", "held_by_portal"];
   const shipTo = x.shipTo ? [x.shipTo.label, x.shipTo.text].filter(Boolean).join(" / ").replace(/\n/g, ", ") : "";
   const rows = x.lines.map((l) => [x.number, x.shop.name, x.contact.email, x.currency, x.po, shipTo, l.brand, l.code, l.sku, l.description, l.size, l.color, l.condition, l.qty, l.unit,
-    l.unitPrice, l.lineTotal, l.priceTbd ? "yes" : "", l.locations.Eastman || 0, l.locations.CDEC || 0]);
+    l.unitPrice, l.lineTotal, l.priceTbd ? "yes" : "", l.locations.Eastman || 0, l.locations.CDEC || 0,
+    x.shop.customerId, x.shop.province, x.shop.taxMode,
+    ...["Eastman", "CDEC"].flatMap((w) => { const s = l.stock[w] || {}; return [s.onHand ?? "", s.reserved ?? "", s.available ?? ""]; }), l.heldByPortal ?? ""]);
   return "﻿" + [head, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
 
@@ -133,6 +141,7 @@ export function buildOwnerEmail(r, priv) {
 <td style="padding:5px 8px;border-bottom:1px solid #e8ebec">E ${l.locations.Eastman || 0} · C ${l.locations.CDEC || 0}</td></tr>`).join("");
   const html = shell(`<h2 style="margin:0 0 8px">New request ${esc(x.number)}</h2>
 <p style="margin:2px 0"><b>${esc(x.shop.name)}</b> · ${esc(x.contact.email)} · ${esc(x.currency)}</p>
+<p style="margin:2px 0;color:#5a6f7a">Customer ${esc(x.shop.customerId || "(no workbook number yet)")} · tax mode ${esc(x.shop.taxMode || "not set")}${x.shop.province ? " · " + esc(x.shop.province) : ""}${x.shop.country ? ", " + esc(x.shop.country) : ""}</p>
 <p style="margin:2px 0">Held until <b>${esc(dateLong(r.expiresAt, "en"))}</b>${cdec ? ` · <b>${cdec}</b> line(s) with stock at CDEC` : ""}</p>
 ${details(r, T.en, "en")}
 <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:10px"><thead><tr style="background:#004D71;color:#fff"><th style="padding:6px 8px;text-align:left">Brand</th><th style="padding:6px 8px;text-align:left">Code</th><th style="padding:6px 8px;text-align:left">Item</th><th style="padding:6px 8px;text-align:right">Qty</th><th style="padding:6px 8px;text-align:right">Total</th><th style="padding:6px 8px;text-align:left">Stock E=Eastman C=CDEC</th></tr></thead><tbody>${rows}</tbody></table>

@@ -145,6 +145,15 @@
       </div>
       <div class="field"><span class="lbl">Brands this shop may see</span><div id="f-brands" class="brands"></div>
         <span class="hint">Shops only ever receive the brands ticked here. A user can have their own list below.</span></div>
+      <div class="field"><span class="lbl">Customer details for invoicing <span class="hint">(private: the shop never sees these; they are added to the request export)</span></span>
+        <div class="grid2">
+          <div class="field"><label for="f-custid">Workbook customer no.</label><input id="f-custid" placeholder="C008" maxlength="12" autocomplete="off"></div>
+          <div class="field"><label for="f-tax">Tax mode</label><select id="f-tax"><option value="">(not set)</option><option value="QC">QC (TPS + TVQ)</option><option value="GST">GST (TPS only)</option><option value="None">None (export, no tax)</option><option value="Manual">Manual</option></select></div>
+          <div class="field"><label for="f-country">Country</label><input id="f-country" maxlength="60" placeholder="Canada"></div>
+          <div class="field"><label for="f-prov">Province / state</label><input id="f-prov" maxlength="60" placeholder="QC"></div>
+        </div>
+        <div class="field" style="margin-bottom:0"><label for="f-bill">Billing address</label><textarea id="f-bill" rows="3" maxlength="300"></textarea></div>
+      </div>
       <div class="field"><span class="lbl">Delivery addresses (up to 3)</span><div id="addresses"></div></div>
       <div class="field"><span class="lbl">Users (email addresses allowed to sign in)</span>
         <div id="users"></div>

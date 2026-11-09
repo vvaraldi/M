@@ -95,6 +95,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Private customer details per shop (workbook customer number, tax mode, province, billing address): owner only.
+    // The Cloud Functions copy them into the owner's request export; shops can never read them.
+    match /shopsPrivate/{id} {
+      allow read, write: if isAdmin();
+    }
+
     // Warehouse locations per request line: owner only.
     match /requestsPrivate/{id} {
       allow read: if isAdmin();

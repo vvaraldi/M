@@ -38,7 +38,8 @@ function cleanText(v, max, field) {
  * Returns { request, priv, reserved:{brandKey: newMap} }
  */
 export function planSubmit(ctx) {
-  const { user, shop, input, itemsDocs = {}, priceDocs = {}, reservedDocs = {}, locations = {}, now, seq } = ctx;
+  const { user, shop, input, itemsDocs = {}, priceDocs = {}, reservedDocs = {}, locations = {}, now, seq,
+    shopPrivate = null, stockDetail = {}, stockAsOf = null } = ctx;
   if (!user || user.active !== true) throw new PlanError("permission-denied", "Your account is not active.");
   if (!shop) throw new PlanError("failed-precondition", "Your shop profile was not found.");
   const brands = Array.isArray(user.brands) ? user.brands : [];
@@ -101,8 +102,22 @@ export function planSubmit(ctx) {
     createdAt: now, expiresAt: addDays(now, RESERVATION_DAYS), extendedCount: 0, reminderSent: false,
     statusChangedAt: now, statusChangedBy: user.email
   };
-  // warehouse locations are private to the owner: kept apart from the request the shop can read
-  const priv = { number: request.number, createdAt: now, lines: Object.fromEntries(lines.map((l) => [l.itemId, locations[l.itemId] || {}])) };
+  // Everything the owner needs for invoicing and shipping but a shop must never read lives here, apart from the request:
+  //  - warehouse stock per item (available, plus on hand and quantities held by Excel draft invoices) as of the last stock upload
+  //  - how many of each item open portal requests hold in total after this request (so a draft invoice is not counted twice)
+  //  - the shop's private customer details (workbook customer number, tax mode, province, billing address)
+  const sp = shopPrivate || {};
+  const txt = (v) => (typeof v === "string" ? v.trim().slice(0, 300) : "");
+  const priv = {
+    number: request.number, createdAt: now, stockAsOf: typeof stockAsOf === "string" ? stockAsOf : null,
+    lines: Object.fromEntries(lines.map((l) => [l.itemId, locations[l.itemId] || {}])),
+    stock: Object.fromEntries(lines.map((l) => [l.itemId, stockDetail[l.itemId] || {}])),
+    held: Object.fromEntries(lines.map((l) => [l.itemId, (newReserved[l.brandKey] && newReserved[l.brandKey][l.itemId]) || l.qty])),
+    shop: {
+      customerId: txt(sp.customerId), country: txt(sp.country), province: txt(sp.province), taxMode: txt(sp.taxMode), billTo: txt(sp.billTo),
+      addresses: (Array.isArray(shop.addresses) ? shop.addresses : []).slice(0, 3).map((a) => ({ label: txt(a && a.label), text: txt(a && a.text) }))
+    }
+  };
   return { request, priv, reserved: newReserved };
 }
 

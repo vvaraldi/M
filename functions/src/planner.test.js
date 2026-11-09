@@ -35,6 +35,28 @@ test("locations stay out of the request the shop can read", () => {
   assert.deepEqual(r.priv.lines.a1, { Eastman: 1, CDEC: 2 });
 });
 
+test("the private record carries stock detail, held quantities and the shop's customer details", () => {
+  const c = base();
+  c.stockDetail = { a1: { Eastman: { onHand: 1, reserved: 0, available: 1 }, CDEC: { onHand: 4, reserved: 2, available: 2 } } };
+  c.stockAsOf = "2026-11-08T17:53";
+  c.shopPrivate = { customerId: "C008", country: "Canada", province: "QC", taxMode: "QC", billTo: "1 Billing Rd\nGatineau QC", ignored: "x" };
+  c.reservedDocs.skitrab.map = { a1: 1 };            // another request already holds 1 pair
+  const { request, priv } = planSubmit(c);
+  assert.deepEqual(priv.stock.a1.CDEC, { onHand: 4, reserved: 2, available: 2 });
+  assert.equal(priv.stockAsOf, "2026-11-08T17:53");
+  assert.equal(priv.held.a1, 3);                     // 1 held before + 2 in this request
+  assert.deepEqual(priv.shop, { customerId: "C008", country: "Canada", province: "QC", taxMode: "QC", billTo: "1 Billing Rd\nGatineau QC",
+    addresses: [{ label: "Store", text: "1 Main St" }, { label: "Dock", text: "2 Rear Rd" }] });
+  // none of it reaches the request document the shop can read
+  const shopSide = JSON.stringify(request);
+  for (const secret of ["C008", "Gatineau", "onHand", "taxMode", "CDEC"]) assert.equal(shopSide.includes(secret), false, secret);
+});
+
+test("missing private details are empty, not an error", () => {
+  const { priv } = planSubmit(base());
+  assert.deepEqual(priv.stock.a1, {}); assert.equal(priv.stockAsOf, null); assert.equal(priv.shop.customerId, ""); assert.equal(priv.held.a1, 2);
+});
+
 test("an item without a price becomes a 'price to be confirmed' line and is flagged", () => {
   const c = base(); c.input.lines.push({ brandKey: "skitrab", itemId: "n1", qty: 1 });
   const r = planSubmit(c);

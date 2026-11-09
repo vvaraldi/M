@@ -89,13 +89,14 @@ export const submitRequest = onCall({ region: REGION, cors: CORS, invoker: "publ
       const counterRef = db.doc("counters/requests");
       const refs = [
         db.doc(`shops/${user.shopId}`), db.doc("admin/locations"), counterRef,
+        db.doc(`shopsPrivate/${user.shopId}`), db.doc("stock/meta"),
         ...brandKeys.map((k) => db.doc(`stock/items__${k}`)),
         ...brandKeys.map((k) => db.doc(`prices/${user.priceTier}__${k}`)),
         ...brandKeys.map((k) => db.doc(`reserved/${k}`))
       ];
       const snaps = await tx.getAll(...refs);
-      const [shopSnap, locSnap, counterSnap] = snaps;
-      const n = brandKeys.length, at = (i, j) => snaps[3 + i * n + j];
+      const [shopSnap, locSnap, counterSnap, shopPrivSnap, metaSnap] = snaps;
+      const n = brandKeys.length, at = (i, j) => snaps[5 + i * n + j];
       const itemsDocs = {}, priceDocs = {}, reservedDocs = {};
       brandKeys.forEach((k, j) => {
         if (at(0, j).exists) itemsDocs[k] = fromFs(at(0, j).data());
@@ -107,7 +108,10 @@ export const submitRequest = onCall({ region: REGION, cors: CORS, invoker: "publ
       // ---- decide
       const plan = planSubmit({
         user, shop: shopSnap.exists ? shopSnap.data() : null, input, itemsDocs, priceDocs, reservedDocs,
-        locations: locSnap.exists ? (locSnap.data().locations || {}) : {}, now: new Date(), seq
+        locations: locSnap.exists ? (locSnap.data().locations || {}) : {}, now: new Date(), seq,
+        stockDetail: locSnap.exists ? (locSnap.data().stock || {}) : {},
+        shopPrivate: shopPrivSnap.exists ? shopPrivSnap.data() : null,
+        stockAsOf: metaSnap.exists ? (metaSnap.data().stockRefreshedAt || metaSnap.data().generatedAt || null) : null
       });
 
       // ---- then write, all or nothing
