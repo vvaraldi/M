@@ -483,7 +483,7 @@ $("mail-test").addEventListener("click", async () => {
     if (r.ok) { out.className = "msg msg-ok"; out.textContent = `Sent to ${ADMIN_EMAIL}. Check your inbox (and spam). Request emails will work.`; }
     else {
       out.className = "msg msg-error";
-      const hint = r.secretLength !== 16 ? ` The saved password has ${r.secretLength} characters but a Google app password has 16: set it again with "firebase functions:secrets:set GMAIL_APP_PASSWORD" and deploy the functions.` : "";
+      const hint = r.shape ? ` Saved password: ${r.shape}.` : (r.secretLength !== 16 ? ` The saved password has ${r.secretLength} characters but a Google app password has 16.` : "");
       out.textContent = `The email could not be sent: ${String(r.error || "unknown error").replace(/[.\s]+$/, "")}.${hint}`;
     }
   } catch (e) {

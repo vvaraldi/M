@@ -62,6 +62,12 @@ async function sendMail(to, msg) {
   });
 }
 const settledStatus = (r) => (r.status === "fulfilled" ? "sent" : "failed");
+/** Describes the saved Gmail password WITHOUT revealing it: only counts of each kind of character. */
+function secretShape() {
+  const v = GMAIL_APP_PASSWORD.value().replace(/\s+/g, "");
+  const n = (re) => (v.match(re) || []).length;
+  return `${v.length} characters (${n(/[a-z]/g)} lowercase, ${n(/[A-Z]/g)} uppercase, ${n(/[0-9]/g)} digits, ${n(/[^a-zA-Z0-9]/g)} other). A Google app password is 16 lowercase letters`;
+}
 /** Short, safe description of an email error (never contains the password). */
 const errText = (e) => `${(e && (e.code || e.responseCode)) || ""} ${(e && (e.response || e.message)) || e}`.trim().replace(/\s+/g, " ").slice(0, 300);
 
@@ -122,7 +128,7 @@ export const submitRequest = onCall({ region: REGION, cors: CORS, invoker: "publ
   results.forEach((r) => { if (r.status === "rejected") logger.error("Email failed for " + request.number, r.reason); });
   const firstError = results.find((r) => r.status === "rejected");
   await db.doc(`requests/${request.number}`).update({
-    emails: { owner: settledStatus(results[0]), shop: settledStatus(results[1]), error: firstError ? errText(firstError.reason) : "" }
+    emails: { owner: settledStatus(results[0]), shop: settledStatus(results[1]), error: firstError ? errText(firstError.reason) + " | Saved password: " + secretShape() : "" }
   }).catch(() => {});
   return { number: request.number, status: request.status, expiresAt: request.expiresAt.toISOString(), emailed: settledStatus(results[1]) === "sent" };
 });
@@ -189,7 +195,7 @@ export const sendTestEmail = onCall({ region: REGION, cors: CORS, invoker: "publ
     return { ok: true, accepted: info.accepted || [], secretLength };
   } catch (e) {
     logger.error("Test email failed", e);
-    return { ok: false, error: errText(e), secretLength };
+    return { ok: false, error: errText(e), secretLength, shape: secretShape() };
   }
 });
 

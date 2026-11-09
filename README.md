@@ -76,6 +76,14 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 - Download any request as JSON or CSV (format in [REQUESTS-SCHEMA.md](REQUESTS-SCHEMA.md)); **Download all open requests** gives one JSON file for your automations.
 - Admin → **Shop view** shows exactly what a chosen shop or user sees (brands, prices, language, reservations).
 
+### If emails do not arrive
+- Admin → **Requests** → **Send me a test email** tells you why. A failed request also shows the reason on its **Emails** line, ending with the
+  *shape* of the saved password (length and kinds of characters, never the characters).
+- `535 Username and Password not accepted` = Gmail refuses the saved app password. It must be exactly the 16 lowercase letters Google showed
+  (spaces optional) and created in the sender account. A saved value of another length means something else was pasted: at the
+  `firebase functions:secrets:set` prompt **type the 16 letters, do not right-click** (that pastes the clipboard invisibly, often the command itself).
+- After changing the secret, answer **Yes** when the tool offers to redeploy the functions; they only read the new value after that.
+
 ### If a functions deploy ever goes wrong
 - A `package.json` saved with a hidden byte-order mark (BOM) makes Google's build fail with `invalid character '﻿'`. Re-save it as plain UTF-8.
 - If a **first** deploy fails after creating the functions, later deploys only *update* them and skip the "public" permission, so browsers get
