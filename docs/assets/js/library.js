@@ -34,6 +34,14 @@ export function fileFormat(name) {
   return ["pdf", "xlsx", "xls", "xlsm", "csv", "docx", "pptx", "zip"].includes(ext) ? ext : "file";
 }
 
+/**
+ * A PRIVATE document has no download link at all: the shop asks a Cloud Function, which checks brand and region
+ * and sends the file itself. Price lists are private by default. The function returns the file in the reply,
+ * so private files are limited to 7 MB (price lists are about 100 KB).
+ */
+export const PRIVATE_MAX = 7 * 1024 * 1024;
+export const privateByDefault = (kind) => kind === "pricelist";
+
 /** Check one record from the admin form. Returns an error text or "". */
 export function validateRecord(r) {
   if (!r || !r.title || !String(r.title).trim()) return "Please enter a title.";
@@ -42,7 +50,8 @@ export function validateRecord(r) {
   if (!KIND_KEYS.includes(r.kind)) return "Please choose catalog or price list.";
   if (r.season && String(r.season).length > 20) return "The season is too long (for example 2026-27).";
   if (!Array.isArray(r.regions) || !r.regions.length || r.regions.some((x) => !REGION_KEYS.includes(x))) return "Tick at least one region.";
-  if (!r.file || !r.file.url || !r.file.path) return "The file is missing.";
+  if (!r.file || !r.file.path || (!r.private && !r.file.url)) return "The file is missing.";
+  if (r.private && (r.file.size || 0) > PRIVATE_MAX) return "A private file can be 7 MB at most. Untick Private to share a large file through a link.";
   return "";
 }
 
@@ -60,10 +69,12 @@ export function buildManifests(records) {
   for (const r of records || []) {
     for (const region of r.regions || []) {
       const id = manifestId(r.brandKey, region);
-      (out[id] ||= { brandKey: r.brandKey, region, items: [] }).items.push({
-        id: r.id, kind: r.kind, title: r.title, season: r.season || "", url: r.file.url, name: r.file.name,
+      const item = {
+        id: r.id, kind: r.kind, title: r.title, season: r.season || "", name: r.file.name, private: !!r.private,
         size: r.file.size || 0, format: fileFormat(r.file.name), hasCover: !!r.hasCover, updatedAt: r.updatedAt || ""
-      });
+      };
+      if (!r.private) item.url = r.file.url;   // a private document has no link anywhere a shop can read
+      (out[id] ||= { brandKey: r.brandKey, region, items: [] }).items.push(item);
     }
   }
   for (const m of Object.values(out)) m.items.sort(byDisplay);

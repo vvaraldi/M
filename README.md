@@ -84,8 +84,12 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 - Covers: double-click [`tools/make-covers.bat`](tools/make-covers.bat). It writes `<catalog>.cover.jpg` next to every PDF in `Sharable info\Documents` (first page, about 30 KB; installs PyMuPDF on first run).
 - Add a document: Admin → **Documents** → **Add a document**: title, brand, type (catalog or price list), season, regions, the file (up to 150 MB) and optionally the `.cover.jpg`.
   Replace a file by editing the document and choosing a new one; **Delete** removes the file and the entry.
-- Security: the files sit in Cloud Storage that only you can list or change. Shops open a file through its long unguessable download link, which is only
-  published in the list for their brand and region. Anyone who is given that link by a shop could open it; to withdraw a link, upload the file again (the old link stops working).
+- **Private documents (price lists, the default for that type):** no download link exists at all. The file stays in Cloud Storage that only you can read; when a
+  shop presses **Download**, the `getDocument` Cloud Function checks that the user is active, has the brand and is in the document's region, then sends the file and logs it
+  (Admin → Documents → *Recent downloads*). Limit: 7 MB per private file (price lists are about 100 KB). A shop can of course still forward the file it downloaded.
+- **Catalogs (shared by link):** shops open a long unguessable download link, published only in the list for their brand and region. Someone given that link by a shop could open it.
+  To withdraw a link, edit the document and choose the file again: the old file is deleted and the old link stops working.
+- Switching a document between private and link needs the file chosen again (otherwise the old link would keep working).
 
 ### If emails do not arrive
 - Admin → **Requests** → **Send me a test email** tells you why. A failed request also shows the reason on its **Emails** line, ending with the
@@ -104,8 +108,9 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 
 ### Updating the site or the rules (order matters when the data model changes)
 1. Commit and push the site files (GitHub Desktop) and wait for Pages to update.
-2. Deploy the rules: `firebase deploy --only firestore,storage --project m-dealer-portal`
-   (`--dry-run` first checks them without releasing anything). `storage` is the Documents file store; it needs Storage to be set up once in the Firebase console (already done).
+2. Deploy rules and functions: `firebase deploy --only firestore,storage,functions --project m-dealer-portal`
+   (`--dry-run` first checks them without releasing anything). `storage` is the Documents file store (Storage was set up once in the Firebase console, already done);
+   `functions` adds `getDocument`, which serves private documents.
 3. Admin page: publish the stock again; if shops show "not set", press **Give them SkiTrab** once.
 
 ## One-time setup (already done for this project unless noted)

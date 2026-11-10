@@ -4,7 +4,7 @@ import {
   auth, db, onAuthStateChanged, signOut, doc, getDoc, getDocs, collection, writeBatch,
   serverTimestamp, sendLink, emailKey, callFn, storageUpload, storageDelete
 } from "./fb.js";
-import { REGIONS, KINDS, regionFromCurrency, regionLabel, buildManifests, validateRecord, safeFileName, humanSize } from "./library.js";
+import { REGIONS, KINDS, regionFromCurrency, regionLabel, buildManifests, validateRecord, safeFileName, humanSize, privateByDefault } from "./library.js";
 import { ADMIN_EMAIL } from "./firebase-config.js";
 import { h } from "./render.js";
 import { setLang, dateLabel, money } from "./i18n.js";
@@ -298,11 +298,22 @@ async function loadDocs() {
     docsList = snap.exists() && Array.isArray(snap.data().docs) ? snap.data().docs : [];
   } catch (e) { console.error(e); $("docs-msg").textContent = `Could not load the documents: ${e.code || e.message}`; $("docs-msg").hidden = false; docsList = []; }
   renderDocs();
+  loadDownloads();
   // covers for the list (small images), fetched once per document
   for (const r of docsList) {
     if (!r.hasCover || docCovers[r.id]) continue;
     getDoc(doc(db, "libraryCovers", `${r.brandKey}__${r.id}`)).then((s) => { if (s.exists()) { docCovers[r.id] = s.data().dataUrl; renderDocs(); } }).catch(() => {});
   }
+}
+
+/** Who downloaded which private document (written by the getDocument function). Newest 50. */
+async function loadDownloads() {
+  const body = $("dl-table").querySelector("tbody"); body.replaceChildren();
+  let rows = [];
+  try { rows = (await getDocs(collection(db, "downloads"))).docs.map((d) => d.data()); } catch (e) { console.error(e); }
+  rows.sort((a, b) => (b.at && b.at.toDate ? b.at.toDate() : 0) - (a.at && a.at.toDate ? a.at.toDate() : 0));
+  $("dl-empty").hidden = rows.length > 0;
+  for (const r of rows.slice(0, 50)) body.append(h("tr", {}, h("td", { text: fmtDateTime(r.at) }), h("td", { text: r.shopName || "–" }), h("td", { text: r.email }), h("td", { text: r.title })));
 }
 
 function renderDocs() {
@@ -322,7 +333,8 @@ function renderDocs() {
       h("td", { text: (KINDS.find((k) => k.key === r.kind) || {}).label || r.kind }),
       h("td", { text: r.season || "–" }),
       h("td", { text: r.regions.map(regionLabel).join(", ") }),
-      h("td", {}, h("a", { href: r.file.url, target: "_blank", rel: "noopener noreferrer", text: r.file.name }), h("span", { class: "hint", style: "display:block", text: humanSize(r.file.size) })),
+      h("td", {}, r.private ? h("span", { text: r.file.name }) : h("a", { href: r.file.url, target: "_blank", rel: "noopener noreferrer", text: r.file.name }),
+        h("span", { class: "hint", style: "display:block", text: [humanSize(r.file.size), r.private ? "private, no link" : "shared by link"].filter(Boolean).join(" · ") })),
       h("td", {}, edit, " ", del)));
   }
 }
@@ -338,6 +350,8 @@ function openDocEditor(rec) {
   $("d-brand").value = rec ? rec.brandKey : (keys[0] || "");
   $("d-kind").value = rec ? rec.kind : "catalog";
   $("d-season").value = rec ? (rec.season || "") : "";
+  $("d-private").checked = rec ? !!rec.private : privateByDefault($("d-kind").value);
+  privateTouched = !!rec;
   $("d-regions").replaceChildren(...REGIONS.map((r) => {
     const cb = h("input", { type: "checkbox", id: `dr-${r.key}`, value: r.key });
     cb.checked = rec ? rec.regions.includes(r.key) : r.key !== "other";
@@ -351,6 +365,9 @@ function openDocEditor(rec) {
   $("d-progress").hidden = true; ddError("");
   $("doc-dialog").showModal();
 }
+let privateTouched = false;   // until the owner ticks it by hand, Private follows the type (price lists private)
+$("d-private").addEventListener("change", () => { privateTouched = true; });
+$("d-kind").addEventListener("change", () => { if (!privateTouched) $("d-private").checked = privateByDefault($("d-kind").value); });
 $("new-doc").addEventListener("click", () => {
   if (!brandKeysSorted().length) { toast("No brand known yet: publish the stock once first.", true); return; }
   openDocEditor(null);
@@ -392,9 +409,16 @@ $("doc-form").addEventListener("submit", async (e) => {
     id, brandKey: $("d-brand").value, brand: brandLabel($("d-brand").value), kind: $("d-kind").value,
     title: $("d-title").value.trim(), season: $("d-season").value.trim(),
     regions: REGIONS.map((r) => r.key).filter((k) => $(`dr-${k}`).checked),
+    private: $("d-private").checked,
     file: old ? old.file : null, hasCover: old ? old.hasCover : false, updatedAt: new Date().toISOString()
   };
   if (!old && !file) { ddError("Please choose the file."); return; }
+  // switching between private and link needs the file again: the old download link only stops working when the file is replaced
+  if (old && !file && rec.private !== !!old.private) {
+    ddError(rec.private ? "To make this document private, choose the file again. The old link keeps working until the file is replaced."
+      : "To share this document with a link, choose the file again.");
+    return;
+  }
   if (file) rec.file = { path: `library/${rec.brandKey}/${id}-${safeFileName(file.name)}`, url: "pending", name: file.name, size: file.size, contentType: file.type || "" };
   const bad = validateRecord(rec); if (bad) { ddError(bad); return; }
 
@@ -410,7 +434,7 @@ $("doc-form").addEventListener("submit", async (e) => {
     if (file) {
       bar.hidden = false;
       uploaded = await storageUpload(rec.file.path, file, (p) => { bar.firstElementChild.style.width = Math.round(p * 100) + "%"; });
-      rec.file = uploaded;
+      rec.file = rec.private ? { ...uploaded, url: "" } : uploaded;   // a private file's link is never stored
     }
     // the cover follows the document: it is stored per brand, so a brand change moves it
     const brandChanged = old && old.brandKey !== rec.brandKey;

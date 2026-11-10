@@ -52,7 +52,8 @@ const S = {
     u_pair_one: "pair", u_pair_other: "pairs", u_piece_one: "piece", u_piece_other: "pieces", u_m_one: "m", u_m_other: "m",
     nav_docs: "Documents", d_title: "Catalogs and price lists", d_catalogs: "Catalogs", d_pricelists: "Price lists",
     d_open: "Open catalog", d_download: "Download", d_season: "Season {season}",
-    d_empty: "No document is available for your brands yet. Please check back soon.", d_err: "The documents could not be loaded. Please reload the page."
+    d_empty: "No document is available for your brands yet. Please check back soon.", d_err: "The documents could not be loaded. Please reload the page.",
+    d_preparing: "Preparing…", d_dl_err: "The file could not be downloaded. Please try again."
   },
   fr: {
     portal: "Portail partenaires", sign_out: "Se déconnecter", loading: "Chargement…",
@@ -102,7 +103,8 @@ const S = {
     u_pair_one: "paire", u_pair_other: "paires", u_piece_one: "pièce", u_piece_other: "pièces", u_m_one: "m", u_m_other: "m",
     nav_docs: "Documents", d_title: "Catalogues et listes de prix", d_catalogs: "Catalogues", d_pricelists: "Listes de prix",
     d_open: "Ouvrir le catalogue", d_download: "Télécharger", d_season: "Saison {season}",
-    d_empty: "Aucun document n'est encore disponible pour vos marques. Revenez bientôt.", d_err: "Les documents n'ont pas pu être chargés. Veuillez recharger la page."
+    d_empty: "Aucun document n'est encore disponible pour vos marques. Revenez bientôt.", d_err: "Les documents n'ont pas pu être chargés. Veuillez recharger la page.",
+    d_preparing: "Préparation…", d_dl_err: "Le fichier n'a pas pu être téléchargé. Veuillez réessayer."
   },
   it: {
     portal: "Portale rivenditori", sign_out: "Esci", loading: "Caricamento…",
@@ -152,7 +154,8 @@ const S = {
     u_pair_one: "paio", u_pair_other: "paia", u_piece_one: "pezzo", u_piece_other: "pezzi", u_m_one: "m", u_m_other: "m",
     nav_docs: "Documenti", d_title: "Cataloghi e listini", d_catalogs: "Cataloghi", d_pricelists: "Listini prezzi",
     d_open: "Apri il catalogo", d_download: "Scarica", d_season: "Stagione {season}",
-    d_empty: "Nessun documento è ancora disponibile per le tue marche. Riprova presto.", d_err: "Impossibile caricare i documenti. Ricarica la pagina."
+    d_empty: "Nessun documento è ancora disponibile per le tue marche. Riprova presto.", d_err: "Impossibile caricare i documenti. Ricarica la pagina.",
+    d_preparing: "Preparazione…", d_dl_err: "Impossibile scaricare il file. Riprova."
   }
 };
 

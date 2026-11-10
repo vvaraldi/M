@@ -33,7 +33,7 @@ test("a Canadian shop never gets the USA price list, and a brand it lacks gives 
 
 test("manifests carry no storage paths, only what a shop needs", () => {
   const item = buildManifests(recs)["skitrab__canada"].items[0];
-  assert.deepEqual(Object.keys(item).sort(), ["format", "hasCover", "id", "kind", "name", "season", "size", "title", "updatedAt", "url"]);
+  assert.deepEqual(Object.keys(item).sort(), ["format", "hasCover", "id", "kind", "name", "private", "season", "size", "title", "updatedAt", "url"]);
   assert.equal(JSON.stringify(buildManifests(recs)).includes("library/x/"), false);
   assert.equal(item.format, "pdf");
 });

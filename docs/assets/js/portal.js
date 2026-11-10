@@ -226,7 +226,7 @@ function renderApp() {
   } else if (route === "request") {
     renderCartView($("page-request"), ctx);
   } else if (route === "documents") {
-    renderLibrary($("page-documents"), { db, doc, getDoc, profile, brands });
+    renderLibrary($("page-documents"), { db, doc, getDoc, callFn, profile, brands });
   } else {
     renderHistory($("page-history"), ctx);
   }

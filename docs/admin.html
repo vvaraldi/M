@@ -104,6 +104,11 @@
         <thead><tr><th>Cover</th><th>Title</th><th>Brand</th><th>Type</th><th>Season</th><th>Regions</th><th>File</th><th></th></tr></thead>
         <tbody></tbody></table></div>
       <p id="docs-empty" class="count" hidden>No document yet. Add the first one.</p>
+      <h3 style="margin:22px 0 8px">Recent downloads of private documents</h3>
+      <div class="card" style="overflow:auto"><table class="t stack" id="dl-table">
+        <thead><tr><th>When</th><th>Shop</th><th>User</th><th>Document</th></tr></thead>
+        <tbody></tbody></table></div>
+      <p id="dl-empty" class="count" hidden>No download yet.</p>
     </section>
 
     <!-- STOCK -->
@@ -199,7 +204,9 @@
       <div class="field"><span class="lbl">Shown to these regions</span><div id="d-regions" class="brands"></div>
         <span class="hint">A shop's region is set on its page in the Shops tab (default: from its currency).</span></div>
       <div class="field"><label for="d-file">File <span id="d-file-cur" class="hint"></span></label><input id="d-file" type="file" accept=".pdf,.xlsx,.xls,.xlsm,.csv,.docx,.pptx,.zip,application/pdf">
-        <span class="hint">PDF for catalogs, Excel for price lists. Up to 150 MB.</span></div>
+        <span class="hint">PDF for catalogs, Excel for price lists. Up to 150 MB (7 MB if private).</span></div>
+      <div class="field"><label class="check"><input type="checkbox" id="d-private"> <b>Private</b>: no download link exists</label>
+        <span class="hint">Shops get the file through the portal after it checks their brand and region, and each download is logged. Recommended for price lists (the default). Catalogs are normally shared with a link, which also works for large PDFs.</span></div>
       <div class="field"><label for="d-cover">Cover image (optional, JPG or PNG)</label>
         <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap"><img id="d-cover-prev" class="cover-prev" alt="" hidden>
           <div><input id="d-cover" type="file" accept="image/jpeg,image/png,image/webp">

@@ -3,6 +3,7 @@
 //   submitRequest   a signed-in shop user sends a request; stock is reserved for 7 days in ONE Firestore
 //                   transaction (so two shops cannot take the last pair), then two emails go out.
 //   updateRequest   cancel (shop or owner) / release, extend, mark invoiced (owner only).
+//   getDocument     sends a private document (price list) to a shop entitled to it; no download link exists.
 //   housekeeping    every hour: expires holds that ended and sends the day-5 reminder.
 //
 // All the rules live in planner.js (pure and unit-tested). This file only reads, calls the planner,
@@ -14,6 +15,8 @@ import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
+import { checkDocumentAccess, contentTypeOf, MAX_PRIVATE_BYTES } from "./access.js";
 import nodemailer from "nodemailer";
 import { planSubmit, planAction, needsReminder, PlanError } from "./planner.js";
 import { buildShopEmail, buildOwnerEmail, buildReminderEmail } from "./emails.js";
@@ -201,6 +204,35 @@ export const sendTestEmail = onCall({ region: REGION, cors: CORS, invoker: "publ
     logger.error("Test email failed", e);
     return { ok: false, error: errText(e), secretLength, shape: secretShape() };
   }
+});
+
+// ---------------------------------------------------------------- getDocument
+// A PRIVATE document (price lists) has no download link. The portal asks here; the function checks that the user is
+// active, has the brand and is in the region of the document, then sends the file in the reply and logs the download.
+// A public document (catalog) just gets its link back. The owner can always fetch any document.
+const STORAGE_BUCKET = "m-dealer-portal.firebasestorage.app";
+export const getDocument = onCall({ region: REGION, cors: CORS, invoker: "public", maxInstances: 5, memory: "512MiB" }, async (req) => {
+  const email = authedEmail(req);
+  const id = req.data && req.data.id;
+  if (typeof id !== "string" || !/^[A-Za-z0-9]{1,40}$/.test(id)) throw new HttpsError("invalid-argument", "Invalid document.");
+  const isOwner = email === OWNER_EMAIL;
+  const [libSnap, userSnap] = await Promise.all([db.doc("admin/library").get(), isOwner ? null : db.doc(`users/${email}`).get()]);
+  const record = ((libSnap.exists && libSnap.data().docs) || []).find((r) => r && r.id === id);
+  const user = userSnap && userSnap.exists ? userSnap.data() : null;
+  const reason = isOwner ? (record ? "" : "not-found") : checkDocumentAccess(user, record);
+  if (reason === "denied") throw new HttpsError("permission-denied", "Your account is not active.");
+  if (reason) throw new HttpsError("not-found", "This document is not available.");
+
+  if (!record.private) return { url: record.file.url, name: record.file.name };
+  if ((record.file.size || 0) > MAX_PRIVATE_BYTES) throw new HttpsError("failed-precondition", "This file is too large to send privately.");
+  let buf;
+  try { [buf] = await getStorage().bucket(STORAGE_BUCKET).file(record.file.path).download(); }
+  catch (e) { logger.error("Document read failed " + id, e); throw new HttpsError("internal", "The file could not be read. Please try again later."); }
+  if (!isOwner) {
+    db.collection("downloads").add({ email, shopId: user.shopId || "", shopName: user.shopName || "", docId: id, title: record.title, brandKey: record.brandKey, kind: record.kind, at: Timestamp.now() })
+      .catch((e) => logger.error("Download log failed", e));   // a logging problem never blocks the download
+  }
+  return { name: record.file.name, contentType: contentTypeOf(record.file.name), base64: buf.toString("base64") };
 });
 
 // ---------------------------------------------------------------- housekeeping

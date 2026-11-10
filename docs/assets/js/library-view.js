@@ -5,7 +5,7 @@ import { h } from "./render.js";
 import { manifestsFor, humanSize, regionFromCurrency } from "./library.js";
 
 /**
- * ctx = { db, doc, getDoc, profile, brands:[{key,name}] }
+ * ctx = { db, doc, getDoc, callFn, profile, brands:[{key,name}] }
  * brands = the brands this user may see (names come from the stock; a brand with no stock falls back to its key).
  */
 export async function renderLibrary(root, ctx) {
@@ -37,6 +37,30 @@ export async function renderLibrary(root, ctx) {
   root.append(...[section("catalog", "d_catalogs", "d_open"), section("pricelist", "d_pricelists", "d_download")].filter(Boolean));
 }
 
+const TYPES = { xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xls: "application/vnd.ms-excel", csv: "text/csv", pdf: "application/pdf" };
+
+/** Save a file received from the getDocument function ({ name, contentType, base64 }) through the browser's normal download. */
+export function saveReceivedFile(res) {
+  const bin = atob(res.base64), bytes = new Uint8Array(bin.length);
+  for (let n = 0; n < bin.length; n++) bytes[n] = bin.charCodeAt(n);
+  const ext = String(res.name).split(".").pop().toLowerCase();
+  const a = h("a", { href: URL.createObjectURL(new Blob([bytes], { type: res.contentType || TYPES[ext] || "application/octet-stream" })), download: res.name });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+
+function privateButton(i, label, ctx) {
+  const b = h("button", { class: "btn btn-primary btn-sm", type: "button", text: label });
+  const note = h("div", { class: "doc-err", role: "alert", hidden: true });
+  b.addEventListener("click", async () => {
+    b.disabled = true; b.textContent = t("d_preparing"); note.hidden = true;
+    try { saveReceivedFile(await ctx.callFn("getDocument", { id: i.id })); }
+    catch (e) { console.error("Download failed:", e); note.textContent = t("d_dl_err"); note.hidden = false; }
+    finally { b.disabled = false; b.textContent = label; }
+  });
+  const wrap = h("div", {}, b, note);
+  return wrap;
+}
+
 function docCard(i, showBrand, openLabel, ctx) {
   const cover = h("div", { class: "doc-cover" + (i.hasCover ? "" : " none") },
     i.hasCover ? null : h("span", { class: "doc-ico " + i.format, text: i.format === "file" ? "FILE" : i.format.toUpperCase() }));
@@ -46,7 +70,8 @@ function docCard(i, showBrand, openLabel, ctx) {
       else cover.classList.add("none");
     }).catch(() => cover.classList.add("none"));
   }
-  const open = h("a", { class: "btn btn-primary btn-sm", href: i.url, target: "_blank", rel: "noopener noreferrer", text: openLabel });
+  // a catalog is opened through its link; a private document (price list) has none: the portal fetches it for this user
+  const open = i.private ? privateButton(i, openLabel, ctx) : h("a", { class: "btn btn-primary btn-sm", href: i.url, target: "_blank", rel: "noopener noreferrer", text: openLabel });
   const meta = [showBrand ? i.brand : "", i.season ? t("d_season", { season: i.season }) : "", [i.format === "file" ? "" : i.format.toUpperCase(), humanSize(i.size)].filter(Boolean).join(" · ")].filter(Boolean);
   return h("article", { class: "doc-card" }, cover,
     h("div", { class: "doc-body" }, h("h4", { class: "doc-title", text: i.title }), h("div", { class: "doc-meta", text: meta.join(" · ") }), open));
