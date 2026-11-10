@@ -9,11 +9,12 @@ import { h } from "./render.js";
 import { createStockView } from "./stockview.js";
 import { initCart, cart, count as cartCount, entries as cartEntries, onCartChange, reconcile } from "./cart.js";
 import { renderCartView, renderHistory } from "./requests.js";
+import { renderLibrary } from "./library-view.js";
 
 const $ = (id) => document.getElementById(id);
 const VIEWS = ["loading", "signin", "sent", "confirm", "denied", "app"];
 const show = (name) => VIEWS.forEach((v) => { $("view-" + v).hidden = v !== name; });
-const ROUTES = ["stock", "request", "history"];
+const ROUTES = ["stock", "request", "history", "documents"];
 
 let profile = null, shop = null, meta = null, items = [], prices = {}, reserved = {}, brands = [];
 let pendingError = null, lastEmail = "", stockView = null, route = "stock", firstRender = true;
@@ -224,6 +225,8 @@ function renderApp() {
     if (meta.contact && /^[^\s@<>"]+@[^\s@<>"]+$/.test(meta.contact)) contact.append(t("contact") + " ", h("a", { href: "mailto:" + meta.contact, text: t("contact_link") }));
   } else if (route === "request") {
     renderCartView($("page-request"), ctx);
+  } else if (route === "documents") {
+    renderLibrary($("page-documents"), { db, doc, getDoc, profile, brands });
   } else {
     renderHistory($("page-history"), ctx);
   }

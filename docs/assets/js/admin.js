@@ -2,8 +2,9 @@
 // The real protection is in firestore.rules; the checks here are for a clear user experience.
 import {
   auth, db, onAuthStateChanged, signOut, doc, getDoc, getDocs, collection, writeBatch,
-  serverTimestamp, sendLink, emailKey, callFn
+  serverTimestamp, sendLink, emailKey, callFn, storageUpload, storageDelete
 } from "./fb.js";
+import { REGIONS, KINDS, regionFromCurrency, regionLabel, buildManifests, validateRecord, safeFileName, humanSize } from "./library.js";
 import { ADMIN_EMAIL } from "./firebase-config.js";
 import { h } from "./render.js";
 import { setLang, dateLabel, money } from "./i18n.js";
@@ -48,7 +49,7 @@ const brandKeysSorted = () => Object.keys(brandNames).sort((a, b) => brandLabel(
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
 
 // ------------------------------------------------------------------ tabs
-const TABS = ["shops", "requests", "view", "stock"];
+const TABS = ["shops", "requests", "view", "docs", "stock"];
 function selectTab(name) {
   for (const t of TABS) {
     $("tab-" + t).setAttribute("aria-selected", String(t === name));
@@ -58,6 +59,7 @@ function selectTab(name) {
   if (name === "stock") loadPublished();
   if (name === "requests") loadRequests();
   if (name === "view") openShopView();
+  if (name === "docs") loadDocs();
 }
 for (const t of TABS) $("tab-" + t).addEventListener("click", () => selectTab(t));
 $("signout").addEventListener("click", () => signOut(auth));
@@ -92,7 +94,7 @@ function renderShops() {
     const brands = Array.isArray(s.brands) ? (s.brands.length ? s.brands.map(brandLabel).join(", ") : "none") : "not set";
     body.append(h("tr", {},
       h("td", {}, h("b", { text: s.name }), (shopsPriv[s.id] && shopsPriv[s.id].customerId) ? h("span", { class: "hint", style: "display:block", text: shopsPriv[s.id].customerId }) : null),
-      h("td", { text: `${s.priceType || "SHOP"} · ${s.currency}` }),
+      h("td", { text: `${s.priceType || "SHOP"} · ${s.currency}` }, h("span", { class: "hint", style: "display:block", text: regionLabel(s.region || regionFromCurrency(s.currency)) })),
       h("td", { class: Array.isArray(s.brands) ? "" : "warn-text", text: brands }),
       h("td", { text: (s.language || "en").toUpperCase() }),
       h("td", { text: mine.length ? mine.map((u) => u.email + (Array.isArray(u.brandsOverride) ? " *" : "")).join(", ") : "–" }),
@@ -199,6 +201,8 @@ function openEditor(shop) {
   $("f-currency").value = shop ? shop.currency : "CAD";
   $("f-type").value = shop ? (shop.priceType || "SHOP") : "SHOP";
   $("f-lang").value = shop ? (shop.language || "en") : "en";
+  $("f-region").value = shop ? (shop.region || regionFromCurrency(shop.currency)) : "canada";
+  regionTouched = !!(shop && shop.region);
   $("f-active").checked = shop ? shop.active !== false : true;
   const pv = (shop && shopsPriv[shop.id]) || {};
   $("f-custid").value = pv.customerId || ""; $("f-tax").value = pv.taxMode || ""; $("f-country").value = pv.country || "";
@@ -232,7 +236,11 @@ function addUserFromInput() {
   $("f-newuser").value = ""; renderEditorUsers();
 }
 
-$("f-type").addEventListener("change", () => { if ($("f-type").value === "EXPORT") $("f-currency").value = "EUR"; });
+let regionTouched = false;   // until the owner picks a region by hand it follows the currency
+const followCurrency = () => { if (!regionTouched) $("f-region").value = regionFromCurrency($("f-currency").value); };
+$("f-region").addEventListener("change", () => { regionTouched = true; });
+$("f-currency").addEventListener("change", followCurrency);
+$("f-type").addEventListener("change", () => { if ($("f-type").value === "EXPORT") { $("f-currency").value = "EUR"; followCurrency(); } });
 
 $("shop-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -248,18 +256,18 @@ $("shop-form").addEventListener("submit", async (e) => {
   if (dup) { const other = shops.find((s) => s.id === dup[0]); dlgError(`${customerId} is already used by ${other ? other.name : "another shop"}.`); return; }
   const priv = { customerId, taxMode: $("f-tax").value, country: normCountry($("f-country").value), province: normProvince($("f-prov").value), billTo: $("f-bill").value.trim() };
   const addresses = [0, 1, 2].map((i) => ({ label: $(`a-label-${i}`).value.trim(), text: $(`a-text-${i}`).value.trim() })).filter((a) => a.text);
-  const active = $("f-active").checked, language = $("f-lang").value;
+  const active = $("f-active").checked, language = $("f-lang").value, region = $("f-region").value;
   const ref = editing.id ? doc(db, "shops", editing.id) : doc(collection(db, "shops"));
   const shopId = ref.id, tier = tierOf(type, currency), shopBrands = [...editing.brands].sort();
 
   const btn = $("dlg-save"); btn.disabled = true; dlgError("");
   try {
     const batch = writeBatch(db);
-    batch.set(ref, { name, currency, priceType: type, priceTier: tier, brands: shopBrands, language, active, addresses, updatedAt: serverTimestamp() }, { merge: true });
+    batch.set(ref, { name, currency, priceType: type, priceTier: tier, brands: shopBrands, language, region, active, addresses, updatedAt: serverTimestamp() }, { merge: true });
     batch.set(doc(db, "shopsPrivate", shopId), { ...priv, updatedAt: serverTimestamp() }, { merge: true });   // private: owner only
     for (const u of editing.users) {
       const data = {
-        email: u.email, shopId, shopName: name, currency, priceType: type, priceTier: tier,
+        email: u.email, shopId, shopName: name, currency, priceType: type, priceTier: tier, region,
         brands: u.override ? [...u.override].sort() : shopBrands, brandsOverride: u.override ? [...u.override].sort() : null,
         active: active && u.userActive, userActive: u.userActive
       };
@@ -276,6 +284,178 @@ $("shop-form").addEventListener("submit", async (e) => {
     dlgError(`Could not save: ${err.code || err.message}`);
   } finally { btn.disabled = false; }
 });
+
+// ------------------------------------------------------------------ documents (catalogs, price lists)
+// Master list: admin/library { docs: [record] } (owner only, holds the Storage paths).
+// Shops get small manifests library/<brand>__<region> (no paths) and one cover document per file.
+let docsList = [], docCovers = {}, editingDoc = null;   // docCovers: record id -> data URL (loaded on demand for the list)
+const COVER_W = 420;
+
+async function loadDocs() {
+  $("docs-msg").hidden = true;
+  try {
+    const snap = await getDoc(doc(db, "admin", "library"));
+    docsList = snap.exists() && Array.isArray(snap.data().docs) ? snap.data().docs : [];
+  } catch (e) { console.error(e); $("docs-msg").textContent = `Could not load the documents: ${e.code || e.message}`; $("docs-msg").hidden = false; docsList = []; }
+  renderDocs();
+  // covers for the list (small images), fetched once per document
+  for (const r of docsList) {
+    if (!r.hasCover || docCovers[r.id]) continue;
+    getDoc(doc(db, "libraryCovers", `${r.brandKey}__${r.id}`)).then((s) => { if (s.exists()) { docCovers[r.id] = s.data().dataUrl; renderDocs(); } }).catch(() => {});
+  }
+}
+
+function renderDocs() {
+  const body = $("docs-table").querySelector("tbody");
+  body.replaceChildren();
+  $("docs-empty").hidden = docsList.length > 0;
+  const sorted = [...docsList].sort((a, b) => brandLabel(a.brandKey).localeCompare(brandLabel(b.brandKey)) || a.kind.localeCompare(b.kind) || String(b.season || "").localeCompare(String(a.season || "")));
+  for (const r of sorted) {
+    const edit = h("button", { class: "btn btn-ghost btn-sm", type: "button", text: "Edit" });
+    edit.addEventListener("click", () => openDocEditor(r));
+    const del = h("button", { class: "btn btn-danger btn-sm", type: "button", text: "Delete" });
+    del.addEventListener("click", () => deleteDoc(r, del));
+    body.append(h("tr", {},
+      h("td", {}, docCovers[r.id] ? h("img", { class: "cover-prev", style: "width:42px;height:56px", alt: "", src: docCovers[r.id] }) : h("span", { class: "hint", text: r.hasCover ? "…" : "–" })),
+      h("td", {}, h("b", { text: r.title })),
+      h("td", { text: brandLabel(r.brandKey) }),
+      h("td", { text: (KINDS.find((k) => k.key === r.kind) || {}).label || r.kind }),
+      h("td", { text: r.season || "–" }),
+      h("td", { text: r.regions.map(regionLabel).join(", ") }),
+      h("td", {}, h("a", { href: r.file.url, target: "_blank", rel: "noopener noreferrer", text: r.file.name }), h("span", { class: "hint", style: "display:block", text: humanSize(r.file.size) })),
+      h("td", {}, edit, " ", del)));
+  }
+}
+
+function ddError(msg) { $("dd-error").textContent = msg; $("dd-error").hidden = !msg; if (msg) $("dd-error").scrollIntoView({ block: "nearest" }); }
+
+function openDocEditor(rec) {
+  editingDoc = rec || null;
+  $("dd-title").textContent = rec ? `Edit: ${rec.title}` : "Add a document";
+  const keys = brandKeysSorted();
+  $("d-brand").replaceChildren(...keys.map((k) => h("option", { value: k, text: brandLabel(k) })));
+  $("d-title").value = rec ? rec.title : "";
+  $("d-brand").value = rec ? rec.brandKey : (keys[0] || "");
+  $("d-kind").value = rec ? rec.kind : "catalog";
+  $("d-season").value = rec ? (rec.season || "") : "";
+  $("d-regions").replaceChildren(...REGIONS.map((r) => {
+    const cb = h("input", { type: "checkbox", id: `dr-${r.key}`, value: r.key });
+    cb.checked = rec ? rec.regions.includes(r.key) : r.key !== "other";
+    return h("label", { class: "check", style: "font-weight:400" }, cb, r.label);
+  }));
+  $("d-file").value = ""; $("d-cover").value = ""; $("d-cover-rm").checked = false;
+  $("d-file-cur").textContent = rec ? `(current: ${rec.file.name}; choose a file only to replace it)` : "";
+  const prev = $("d-cover-prev"), cur = rec && docCovers[rec.id];
+  prev.hidden = !cur; if (cur) prev.src = cur;
+  $("d-cover-rm-wrap").hidden = !(rec && rec.hasCover);
+  $("d-progress").hidden = true; ddError("");
+  $("doc-dialog").showModal();
+}
+$("new-doc").addEventListener("click", () => {
+  if (!brandKeysSorted().length) { toast("No brand known yet: publish the stock once first.", true); return; }
+  openDocEditor(null);
+});
+$("dd-close").addEventListener("click", () => $("doc-dialog").close());
+$("dd-cancel").addEventListener("click", () => $("doc-dialog").close());
+$("d-cover").addEventListener("change", async () => {
+  const f = $("d-cover").files[0]; if (!f) return;
+  try { const url = await coverDataUrl(f); $("d-cover-prev").src = url; $("d-cover-prev").hidden = false; $("d-cover-rm").checked = false; }
+  catch (e) { ddError(e.message); $("d-cover").value = ""; }
+});
+
+/** Downsize a picked image to a small JPEG data URL (about 420 px wide, 50-80 KB). */
+async function coverDataUrl(file) {
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("The cover must be a JPG, PNG or WebP image.");
+  let bmp;
+  try { bmp = await createImageBitmap(file); } catch (e) { throw new Error("That image could not be read."); }
+  const scale = Math.min(1, COVER_W / bmp.width), c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * scale)); c.height = Math.max(1, Math.round(bmp.height * scale));
+  const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(bmp, 0, 0, c.width, c.height);
+  const url = c.toDataURL("image/jpeg", 0.82);
+  if (url.length > 400000) throw new Error("The cover is too large even after resizing.");
+  return url;
+}
+
+/** Rebuild every manifest from the master list and remove the ones that no longer apply. */
+function writeManifests(batch, records, existingIds) {
+  const built = buildManifests(records);
+  for (const [id, m] of Object.entries(built)) batch.set(doc(db, "library", id), { ...m, updatedAt: serverTimestamp() });
+  for (const id of existingIds) if (!built[id]) batch.delete(doc(db, "library", id));
+}
+async function manifestIds() { return (await getDocs(collection(db, "library"))).docs.map((d) => d.id); }
+
+$("doc-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const old = editingDoc, file = $("d-file").files[0];
+  const id = old ? old.id : doc(collection(db, "libraryCovers")).id;
+  const rec = {
+    id, brandKey: $("d-brand").value, brand: brandLabel($("d-brand").value), kind: $("d-kind").value,
+    title: $("d-title").value.trim(), season: $("d-season").value.trim(),
+    regions: REGIONS.map((r) => r.key).filter((k) => $(`dr-${k}`).checked),
+    file: old ? old.file : null, hasCover: old ? old.hasCover : false, updatedAt: new Date().toISOString()
+  };
+  if (!old && !file) { ddError("Please choose the file."); return; }
+  if (file) rec.file = { path: `library/${rec.brandKey}/${id}-${safeFileName(file.name)}`, url: "pending", name: file.name, size: file.size, contentType: file.type || "" };
+  const bad = validateRecord(rec); if (bad) { ddError(bad); return; }
+
+  let cover = null;                                    // data URL, or null to keep the current one
+  const pickedCover = $("d-cover").files[0];
+  try { if (pickedCover) cover = await coverDataUrl(pickedCover); } catch (err) { ddError(err.message); return; }
+  const removeCover = $("d-cover-rm").checked && !pickedCover;
+
+  const btn = $("dd-save"); btn.disabled = true; ddError("");
+  const bar = $("d-progress"); bar.hidden = true;
+  let uploaded = null;
+  try {
+    if (file) {
+      bar.hidden = false;
+      uploaded = await storageUpload(rec.file.path, file, (p) => { bar.firstElementChild.style.width = Math.round(p * 100) + "%"; });
+      rec.file = uploaded;
+    }
+    // the cover follows the document: it is stored per brand, so a brand change moves it
+    const brandChanged = old && old.brandKey !== rec.brandKey;
+    if (!cover && old && old.hasCover && brandChanged && !removeCover) {
+      const s = await getDoc(doc(db, "libraryCovers", `${old.brandKey}__${id}`));
+      cover = s.exists() ? s.data().dataUrl : null;
+    }
+    rec.hasCover = removeCover ? false : (cover ? true : !!(old && old.hasCover));
+    const records = [...docsList.filter((r) => r.id !== id), rec];
+    const ids = await manifestIds();
+    const batch = writeBatch(db);
+    batch.set(doc(db, "admin", "library"), { docs: records, updatedAt: serverTimestamp() });
+    writeManifests(batch, records, ids);
+    if (old && old.hasCover && (brandChanged || removeCover || !rec.hasCover)) batch.delete(doc(db, "libraryCovers", `${old.brandKey}__${id}`));
+    if (cover) batch.set(doc(db, "libraryCovers", `${rec.brandKey}__${id}`), { dataUrl: cover, updatedAt: serverTimestamp() });
+    await batch.commit();
+    if (cover) docCovers[id] = cover; else if (!rec.hasCover) delete docCovers[id];
+    if (old && uploaded && old.file.path !== uploaded.path) { try { await storageDelete(old.file.path); } catch (err) { console.warn("Old file not deleted", err); } }
+    $("doc-dialog").close();
+    toast(`Saved ${rec.title}`);
+    await loadDocs();
+  } catch (err) {
+    console.error(err);
+    if (uploaded && !old) { try { await storageDelete(uploaded.path); } catch (x) { /* ignore */ } }   // do not leave an orphan file
+    ddError(`Could not save: ${err.code || err.message}`);
+  } finally { btn.disabled = false; }
+});
+
+async function deleteDoc(rec, btn) {
+  if (!confirm(`Delete "${rec.title}"? The file is removed and shops can no longer open it. This cannot be undone.`)) return;
+  btn.disabled = true;
+  try {
+    const records = docsList.filter((r) => r.id !== rec.id);
+    const ids = await manifestIds();
+    const batch = writeBatch(db);
+    batch.set(doc(db, "admin", "library"), { docs: records, updatedAt: serverTimestamp() });
+    writeManifests(batch, records, ids);
+    if (rec.hasCover) batch.delete(doc(db, "libraryCovers", `${rec.brandKey}__${rec.id}`));
+    await batch.commit();
+    try { await storageDelete(rec.file.path); } catch (err) { console.warn("File not deleted", err); }
+    delete docCovers[rec.id];
+    toast(`Deleted ${rec.title}`);
+    await loadDocs();
+  } catch (err) { console.error(err); toast(`Could not delete: ${err.code || err.message}`, true); btn.disabled = false; }
+}
 
 // ------------------------------------------------------------------ stock upload
 async function loadPublished() {

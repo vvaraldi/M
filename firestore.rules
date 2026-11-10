@@ -95,6 +95,24 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Documents library (catalogs, price lists). One manifest per brand AND region: library/<brand>__<region>.
+    // A user reads only the manifests of their own brands, in their own region (users/<email>.region), so a Canadian shop
+    // cannot learn that a USA-only price list exists. Covers are small images per document, readable by users of that brand.
+    // Only the owner writes (the files themselves sit in Storage, see storage.rules).
+    // Region = users/<email>.region; when the owner never set one it follows the currency (CAD = Canada, USD = USA, else other).
+    function myRegion() {
+      return myData().get('region', myData().get('currency', '') == 'CAD' ? 'canada' : (myData().get('currency', '') == 'USD' ? 'usa' : 'other'));
+    }
+    match /library/{docId} {
+      allow read: if isAdmin() || (isInvited() && docId.matches('[a-z0-9]+__[a-z]+')
+          && docId.split('__')[0] in myBrands() && docId.split('__')[1] == myRegion());
+      allow write: if isAdmin();
+    }
+    match /libraryCovers/{docId} {
+      allow read: if isAdmin() || (isInvited() && docId.matches('[a-z0-9]+__[A-Za-z0-9]+') && docId.split('__')[0] in myBrands());
+      allow write: if isAdmin();
+    }
+
     // Private customer details per shop (workbook customer number, tax mode, province, billing address): owner only.
     // The Cloud Functions copy them into the owner's request export; shops can never read them.
     match /shopsPrivate/{id} {

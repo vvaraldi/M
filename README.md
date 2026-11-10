@@ -77,6 +77,16 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 - Download any request as JSON or CSV (format in [REQUESTS-SCHEMA.md](REQUESTS-SCHEMA.md)); **Download all open requests** gives one JSON file for your automations.
 - Admin → **Shop view** shows exactly what a chosen shop or user sees (brands, prices, language, reservations).
 
+### Catalogs and price lists (Documents)
+- Shops have a **Documents** tab: catalogs (cover, title, season, *Open*) and price lists (*Download*), limited to **their brands** and **their region**.
+- A shop's region is set in the shop editor (Admin → Shops → Edit → *Region*: Canada, USA or Other countries). Until you choose one it follows the
+  currency (CAD = Canada, USD = USA, anything else = Other). Each document lists the regions that may see it, so a Canadian shop never learns that a USA price list exists.
+- Covers: double-click [`tools/make-covers.bat`](tools/make-covers.bat). It writes `<catalog>.cover.jpg` next to every PDF in `Sharable info\Documents` (first page, about 30 KB; installs PyMuPDF on first run).
+- Add a document: Admin → **Documents** → **Add a document**: title, brand, type (catalog or price list), season, regions, the file (up to 150 MB) and optionally the `.cover.jpg`.
+  Replace a file by editing the document and choosing a new one; **Delete** removes the file and the entry.
+- Security: the files sit in Cloud Storage that only you can list or change. Shops open a file through its long unguessable download link, which is only
+  published in the list for their brand and region. Anyone who is given that link by a shop could open it; to withdraw a link, upload the file again (the old link stops working).
+
 ### If emails do not arrive
 - Admin → **Requests** → **Send me a test email** tells you why. A failed request also shows the reason on its **Emails** line, ending with the
   *shape* of the saved password (length and kinds of characters, never the characters).
@@ -94,8 +104,8 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 
 ### Updating the site or the rules (order matters when the data model changes)
 1. Commit and push the site files (GitHub Desktop) and wait for Pages to update.
-2. Deploy the rules: `firebase deploy --only firestore --project m-dealer-portal`
-   (`--dry-run` first checks them without releasing anything).
+2. Deploy the rules: `firebase deploy --only firestore,storage --project m-dealer-portal`
+   (`--dry-run` first checks them without releasing anything). `storage` is the Documents file store; it needs Storage to be set up once in the Firebase console (already done).
 3. Admin page: publish the stock again; if shops show "not set", press **Give them SkiTrab** once.
 
 ## One-time setup (already done for this project unless noted)
@@ -129,7 +139,8 @@ tools/
   export_stock.py       reads the workbook (read-only) and writes tools/output/stock.json
   portal-settings.json  season, units, price tiers (safe to commit)
   run-export.bat        double-click launcher
-firestore.rules         security rules      firebase.json, .firebaserc   Firebase config
+  make_covers.py        cover image (first page) for every catalog PDF; launcher: make-covers.bat
+firestore.rules, storage.rules   security rules      firebase.json, .firebaserc   Firebase config
 ```
 
 ## Privacy and security notes
@@ -145,7 +156,7 @@ firestore.rules         security rules      firebase.json, .firebaserc   Firebas
 
 1. **Phase 1 (this):** sign-in, shops and users, stock page, export + upload, per-shop and per-user brand access.
 2. **Phase 2 (built):** quote requests that reserve stock for 7 days, emails, request management, shop view in Admin.
-3. **Phase 3:** price lists and catalogs per currency, product images, clearance pricing.
+3. **Phase 3:** catalogs and price lists per brand and region (built); product images, clearance pricing (to do).
 4. **Phase 4:** automation (CDEC shipment email, invoice drafting, ledger).
 
 Fonts: Source Sans 3 and Nunito Sans, SIL Open Font License (see `docs/assets/fonts/LICENSE-*.txt`).

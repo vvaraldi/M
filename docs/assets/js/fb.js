@@ -10,6 +10,7 @@ import {
   writeBatch, serverTimestamp, query, where
 } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js";
+import { getStorage, ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-storage.js";
 import { firebaseConfig, DATABASE_ID } from "./firebase-config.js";
 
 export const app = initializeApp(firebaseConfig);
@@ -20,6 +21,24 @@ export {
   onAuthStateChanged, signOut, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
   collection, writeBatch, serverTimestamp, query, where
 };
+
+const storage = getStorage(app);
+
+/** Owner only: upload a file to Storage. Resolves { path, url, name, size, contentType }; `url` is the long unguessable download link. */
+export function storageUpload(path, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const task = uploadBytesResumable(storageRef(storage, path), file, file.type ? { contentType: file.type } : undefined);
+    task.on("state_changed", (s) => { if (onProgress) onProgress(s.totalBytes ? s.bytesTransferred / s.totalBytes : 0); }, reject, async () => {
+      try { resolve({ path, url: await getDownloadURL(task.snapshot.ref), name: file.name, size: file.size, contentType: file.type || "" }); }
+      catch (e) { reject(e); }
+    });
+  });
+}
+/** Owner only: delete a file from Storage (a file that is already gone is not an error). */
+export async function storageDelete(path) {
+  try { await deleteObject(storageRef(storage, path)); }
+  catch (e) { if (!e || e.code !== "storage/object-not-found") throw e; }
+}
 
 /** Call a Cloud Function (region us-central1). Resolves with the function's result, rejects with an error that has .code and .details. */
 export async function callFn(name, data) {

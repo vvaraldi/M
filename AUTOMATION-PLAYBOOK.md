@@ -37,12 +37,28 @@ Read with: [REQUESTS-SCHEMA.md](REQUESTS-SCHEMA.md) (data format) and `..\SKITRA
 - `estimatedPrice: true` means the catalogue price ends in .99, which the workbook treats as an estimate. Point it out to the owner.
 - Keep the request number and the customer's PO number on the invoice (`number`, `po`). Notes from the shop are in `notes`.
 
-## 4. Which warehouse ships (TO CONFIRM)
+## 4. Which warehouse ships: the assistant proposes, the owner decides each shipment
 Each line has `stock` per warehouse (`Eastman`, `CDEC`) as of `stockAsOf`:
 `onHand` = physical count, `reserved` = held by **draft invoices in the workbook**, `available` = onHand − reserved.
-
-Proposed rule: **ship from Eastman first, and take the rest from CDEC.** Any line that needs CDEC stock needs a shipment email to CDEC (it lists the CDEC lines, quantities, the `shipTo` address, `po` and `shipDate`).
 `locations` is the old available-only view of the same numbers.
+
+**There is no fixed rule.** The owner validates the warehouse for every shipment where there is a choice. The assistant only prepares the choice:
+
+1. **No choice:** if a line's full quantity is available in only one warehouse, say so and use it. Do not ask.
+2. **A choice exists:** if a line can be served from either warehouse, or only by splitting between them, show a short table and **wait for the owner's answer** before drafting anything that depends on it:
+
+| Line | qty | Eastman available | CDEC available | Suggestion |
+|---|---|---|---|---|
+| 13216 GARA PLUS 162 | 2 | 1 | 4 | CDEC (covers all 2) |
+| 13182 NEVE 188 | 3 | 3 | – | Eastman (only option) |
+
+3. **How to make the suggestion** (a starting point, never a decision):
+   - prefer the warehouse that can cover the **whole quantity** of the line, so a line is not split needlessly;
+   - between two warehouses that can both cover it, prefer the one that keeps the request in **fewer shipments** (for example Eastman when most other lines come from Eastman);
+   - split a line only when no single warehouse can cover it, and say so;
+   - flag when the choice would leave a warehouse at 0 for an item.
+4. **Never allocate more than a warehouse's `available`**, and remember `reserved` is already excluded from it.
+5. Only after the owner has validated the choices: create the invoice lines with the warehouse as "From stock", and draft the **shipment email to CDEC** for the lines that ship from there (CDEC lines, quantities, the `shipTo` address, `po` and `shipDate`).
 
 ## 5. Stock numbers: what each one means
 | Field | Meaning |

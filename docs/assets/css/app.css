@@ -252,3 +252,22 @@ dialog .df{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap
   table.t.stack tr{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:10px 0;border-bottom:1px solid var(--hair)}
   table.t.stack td{border:0;padding:2px 0}
 }
+
+/* ---- Documents (catalogs and price lists) ---- */
+.doc-section{margin-bottom:26px}
+.doc-h{font:600 18px var(--font-head);color:var(--brand-dark);margin:0 0 12px}
+.doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px}
+.doc-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}
+.doc-cover{aspect-ratio:3/4;background:var(--tint);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.doc-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.doc-cover.none{aspect-ratio:auto;height:96px}
+.doc-ico{font:700 20px var(--font-head);color:var(--brand-dark);letter-spacing:.04em}
+.doc-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
+.doc-title{font:600 16px var(--font-head);margin:0;color:var(--text)}
+.doc-meta{font-size:13px;color:var(--muted);flex:1}
+.doc-body .btn{align-self:flex-start;margin-top:6px;text-decoration:none}
+@media (max-width:520px){.doc-grid{grid-template-columns:repeat(2,1fr);gap:12px}}
+.doc-admin-list .urow{align-items:center}
+.progress{height:8px;border-radius:99px;background:var(--border);overflow:hidden}
+.progress>i{display:block;height:100%;width:0;background:var(--brand);transition:width .15s}
+.cover-prev{width:84px;height:112px;object-fit:cover;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--tint)}

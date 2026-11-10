@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// M dealer portal - Cloud Storage rules.
+// Only the owner can upload, replace, list or delete files. Nobody else can read the bucket through the Storage API.
+// Shops open a file through its long, unguessable download link, which is listed only in the Firestore manifest of the
+// brand and region they are allowed to see (see firestore.rules). The owner can rotate a link by uploading the file again.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isOwner() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email.lower() == 'vincent.varaldi@gmail.com';
+    }
+
+    match /library/{allPaths=**} {
+      allow read: if isOwner();
+      allow write: if isOwner() && request.resource.size < 150 * 1024 * 1024;
+      allow delete: if isOwner();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

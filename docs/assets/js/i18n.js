@@ -49,7 +49,10 @@ const S = {
     h_cancel: "Cancel request", h_cancel_ask: "Cancel request {num} and release the items?", h_cancelled_ok: "Request {num} cancelled.",
     h_lines_one: "{n} line", h_lines_other: "{n} lines", h_plus_tbd: "+ items to price", h_refresh: "Refresh", h_err: "Your requests could not be loaded.",
     st_reserved: "Reserved", st_expired: "Expired", st_cancelled: "Cancelled", st_released: "Released", st_invoiced: "Invoiced",
-    u_pair_one: "pair", u_pair_other: "pairs", u_piece_one: "piece", u_piece_other: "pieces", u_m_one: "m", u_m_other: "m"
+    u_pair_one: "pair", u_pair_other: "pairs", u_piece_one: "piece", u_piece_other: "pieces", u_m_one: "m", u_m_other: "m",
+    nav_docs: "Documents", d_title: "Catalogs and price lists", d_catalogs: "Catalogs", d_pricelists: "Price lists",
+    d_open: "Open catalog", d_download: "Download", d_season: "Season {season}",
+    d_empty: "No document is available for your brands yet. Please check back soon.", d_err: "The documents could not be loaded. Please reload the page."
   },
   fr: {
     portal: "Portail partenaires", sign_out: "Se déconnecter", loading: "Chargement…",
@@ -96,7 +99,10 @@ const S = {
     h_cancel: "Annuler la demande", h_cancel_ask: "Annuler la demande {num} et libérer les articles ?", h_cancelled_ok: "Demande {num} annulée.",
     h_lines_one: "{n} ligne", h_lines_other: "{n} lignes", h_plus_tbd: "+ articles à tarifer", h_refresh: "Actualiser", h_err: "Vos demandes n'ont pas pu être chargées.",
     st_reserved: "Réservée", st_expired: "Expirée", st_cancelled: "Annulée", st_released: "Libérée", st_invoiced: "Facturée",
-    u_pair_one: "paire", u_pair_other: "paires", u_piece_one: "pièce", u_piece_other: "pièces", u_m_one: "m", u_m_other: "m"
+    u_pair_one: "paire", u_pair_other: "paires", u_piece_one: "pièce", u_piece_other: "pièces", u_m_one: "m", u_m_other: "m",
+    nav_docs: "Documents", d_title: "Catalogues et listes de prix", d_catalogs: "Catalogues", d_pricelists: "Listes de prix",
+    d_open: "Ouvrir le catalogue", d_download: "Télécharger", d_season: "Saison {season}",
+    d_empty: "Aucun document n'est encore disponible pour vos marques. Revenez bientôt.", d_err: "Les documents n'ont pas pu être chargés. Veuillez recharger la page."
   },
   it: {
     portal: "Portale rivenditori", sign_out: "Esci", loading: "Caricamento…",
@@ -143,7 +149,10 @@ const S = {
     h_cancel: "Annulla la richiesta", h_cancel_ask: "Annullare la richiesta {num} e rilasciare gli articoli?", h_cancelled_ok: "Richiesta {num} annullata.",
     h_lines_one: "{n} riga", h_lines_other: "{n} righe", h_plus_tbd: "+ articoli da quotare", h_refresh: "Aggiorna", h_err: "Impossibile caricare le tue richieste.",
     st_reserved: "Riservata", st_expired: "Scaduta", st_cancelled: "Annullata", st_released: "Rilasciata", st_invoiced: "Fatturata",
-    u_pair_one: "paio", u_pair_other: "paia", u_piece_one: "pezzo", u_piece_other: "pezzi", u_m_one: "m", u_m_other: "m"
+    u_pair_one: "paio", u_pair_other: "paia", u_piece_one: "pezzo", u_piece_other: "pezzi", u_m_one: "m", u_m_other: "m",
+    nav_docs: "Documenti", d_title: "Cataloghi e listini", d_catalogs: "Cataloghi", d_pricelists: "Listini prezzi",
+    d_open: "Apri il catalogo", d_download: "Scarica", d_season: "Stagione {season}",
+    d_empty: "Nessun documento è ancora disponibile per le tue marche. Riprova presto.", d_err: "Impossibile caricare i documenti. Ricarica la pagina."
   }
 };
 

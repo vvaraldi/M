@@ -29,6 +29,7 @@
       <button role="tab" id="tab-shops" aria-selected="true" aria-controls="panel-shops">Shops</button>
       <button role="tab" id="tab-requests" aria-selected="false" aria-controls="panel-requests">Requests <span id="req-badge" class="count-pill" hidden>0</span></button>
       <button role="tab" id="tab-view" aria-selected="false" aria-controls="panel-view">Shop view</button>
+      <button role="tab" id="tab-docs" aria-selected="false" aria-controls="panel-docs">Documents</button>
       <button role="tab" id="tab-stock" aria-selected="false" aria-controls="panel-stock">Stock upload</button>
     </nav>
     <span class="spacer"></span>
@@ -93,6 +94,18 @@
       <div id="v-root"></div>
     </section>
 
+    <!-- DOCUMENTS -->
+    <section id="panel-docs" role="tabpanel" aria-labelledby="tab-docs" hidden>
+      <div class="h-row"><h2>Documents</h2><button id="new-doc" class="btn btn-primary" type="button">Add a document</button></div>
+      <div class="msg msg-info">Catalogs and price lists. Each document belongs to <b>one brand</b> and is shown only to the <b>regions</b> you tick (Canada, USA, other countries), so a Canadian shop never sees a USA price list. A shop only ever sees documents of the brands it has.
+        The cover image is optional: run <code>tools\make-covers.bat</code> to make one from the first page of each PDF.</div>
+      <div id="docs-msg" class="msg msg-error" hidden></div>
+      <div class="card" style="overflow:auto"><table class="t stack" id="docs-table">
+        <thead><tr><th>Cover</th><th>Title</th><th>Brand</th><th>Type</th><th>Season</th><th>Regions</th><th>File</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
+      <p id="docs-empty" class="count" hidden>No document yet. Add the first one.</p>
+    </section>
+
     <!-- STOCK -->
     <section id="panel-stock" role="tabpanel" aria-labelledby="tab-stock" hidden>
       <div class="h-row"><h2>Stock upload</h2></div>
@@ -141,6 +154,7 @@
         <div class="field"><label for="f-currency">Currency</label><select id="f-currency"><option>CAD</option><option>USD</option><option>EUR</option></select></div>
         <div class="field"><label for="f-type">Price type</label><select id="f-type"><option value="SHOP">Shop (dealer) price</option><option value="RETAIL">Retail price</option><option value="EXPORT">Export price (EUR only)</option></select></div>
         <div class="field"><label for="f-lang">Language</label><select id="f-lang"><option value="en">English</option><option value="fr">Français</option><option value="it">Italiano</option></select></div>
+        <div class="field"><label for="f-region">Region (for catalogs and price lists)</label><select id="f-region"><option value="canada">Canada</option><option value="usa">USA</option><option value="other">Other countries</option></select></div>
         <div class="field"><span class="lbl">Status</span><label class="check"><input type="checkbox" id="f-active" checked> Active (users can sign in)</label></div>
       </div>
       <div class="field"><span class="lbl">Brands this shop may see</span><div id="f-brands" class="brands"></div>
@@ -166,6 +180,35 @@
     <div class="df">
       <button type="button" class="btn btn-ghost" id="dlg-cancel">Cancel</button>
       <button type="submit" class="btn btn-primary" id="dlg-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Document editor -->
+<dialog id="doc-dialog" aria-labelledby="dd-title">
+  <form method="dialog" id="doc-form" novalidate>
+    <div class="dh"><span id="dd-title">Document</span><button type="button" class="btn btn-ghost-light btn-sm" id="dd-close" aria-label="Close">Close</button></div>
+    <div class="db">
+      <div id="dd-error" class="msg msg-error" role="alert" hidden></div>
+      <div class="field"><label for="d-title">Title (shown to shops)</label><input id="d-title" maxlength="120" placeholder="Ski Trab catalog 2026-27" autocomplete="off"></div>
+      <div class="grid2">
+        <div class="field"><label for="d-brand">Brand</label><select id="d-brand"></select></div>
+        <div class="field"><label for="d-kind">Type</label><select id="d-kind"><option value="catalog">Catalog</option><option value="pricelist">Price list</option></select></div>
+        <div class="field"><label for="d-season">Season (optional)</label><input id="d-season" maxlength="20" placeholder="2026-27" autocomplete="off"></div>
+      </div>
+      <div class="field"><span class="lbl">Shown to these regions</span><div id="d-regions" class="brands"></div>
+        <span class="hint">A shop's region is set on its page in the Shops tab (default: from its currency).</span></div>
+      <div class="field"><label for="d-file">File <span id="d-file-cur" class="hint"></span></label><input id="d-file" type="file" accept=".pdf,.xlsx,.xls,.xlsm,.csv,.docx,.pptx,.zip,application/pdf">
+        <span class="hint">PDF for catalogs, Excel for price lists. Up to 150 MB.</span></div>
+      <div class="field"><label for="d-cover">Cover image (optional, JPG or PNG)</label>
+        <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap"><img id="d-cover-prev" class="cover-prev" alt="" hidden>
+          <div><input id="d-cover" type="file" accept="image/jpeg,image/png,image/webp">
+            <label class="check" style="font-weight:400;margin-top:6px" id="d-cover-rm-wrap" hidden><input type="checkbox" id="d-cover-rm"> Remove the current cover</label></div></div></div>
+      <div id="d-progress" class="progress" hidden><i></i></div>
+    </div>
+    <div class="df">
+      <button type="button" class="btn btn-ghost" id="dd-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="dd-save">Save</button>
     </div>
   </form>
 </dialog>
