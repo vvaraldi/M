@@ -42,6 +42,9 @@ Each line has `stock` per warehouse (`Eastman`, `CDEC`) as of `stockAsOf`:
 `onHand` = physical count, `reserved` = held by **draft invoices in the workbook**, `available` = onHand − reserved.
 `locations` is the old available-only view of the same numbers.
 
+**First check `stockScope` on the request.** If it is `eastman` or `cdec`, the shop was only shown (and could only reserve) that warehouse's stock:
+there is no choice, ship from that warehouse only and never propose the other one. Only `all` (or a missing field) leaves the choice below.
+
 **There is no fixed rule.** The owner validates the warehouse for every shipment where there is a choice. The assistant only prepares the choice:
 
 1. **No choice:** if a line's full quantity is available in only one warehouse, say so and use it. Do not ask.

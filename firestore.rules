@@ -41,10 +41,16 @@ service cloud.firestore {
     function myBrands() {
       return myData().get('brands', []);
     }
-    // stock/meta (date and contact only) or stock/items__<brand> for an allowed brand.
+    // Which warehouse stock the admin allowed for this user: 'all' (default), 'w1' or 'w2' (opaque codes, so a shop cannot tell which warehouse they mean). Shops never see where stock is:
+    // the stock of each scope is published as its own document and a user can only read the document of their own scope.
+    function myScope() {
+      return myData().get('stockScope', 'all');
+    }
+    // stock/meta (date and contact only), stock/items__<brand> (all warehouses) or stock/items__<brand>__<w1|w2> for an allowed brand and the user's own scope.
     function stockDocReadable(docId) {
       return docId == 'meta'
-          || (docId.matches('items__[a-z0-9]+') && docId.split('__')[1] in myBrands());
+          || (docId.matches('items__[a-z0-9]+') && docId.split('__')[1] in myBrands() && myScope() == 'all')
+          || (docId.matches('items__[a-z0-9]+__(w1|w2)') && docId.split('__')[1] in myBrands() && docId.split('__')[2] == myScope());
     }
     // prices/<TIER>__<brand>: the user's own tier AND an allowed brand.
     function priceDocReadable(docId) {
@@ -84,7 +90,10 @@ service cloud.firestore {
     // Quantities currently held by open requests, one document per brand: { map: { itemId: qty } }.
     // Shops read it to show what is really available. Only the Cloud Functions write it.
     match /reserved/{docId} {
-      allow read: if isAdmin() || (isInvited() && docId in myBrands());
+      // reserved/<brand> for shops that see all warehouses; reserved/<brand>__w1|w2 for shops limited to that warehouse.
+      allow read: if isAdmin() || (isInvited() && (
+          (docId in myBrands() && myScope() == 'all')
+          || (docId.matches('[a-z0-9]+__(w1|w2)') && docId.split('__')[0] in myBrands() && docId.split('__')[1] == myScope())));
       allow write: if false;
     }
 

@@ -10,6 +10,7 @@ import { createStockView } from "./stockview.js";
 import { initCart, cart, count as cartCount, entries as cartEntries, onCartChange, reconcile } from "./cart.js";
 import { renderCartView, renderHistory } from "./requests.js";
 import { renderLibrary } from "./library-view.js";
+import { scopeOf, itemsDocId, reservedDocId } from "./stockscope.js";
 
 const $ = (id) => document.getElementById(id);
 const VIEWS = ["loading", "signin", "sent", "confirm", "denied", "app"];
@@ -94,12 +95,13 @@ document.querySelectorAll("[data-pills]").forEach((p) => p.addEventListener("cli
 /** Read what this user may see: only the allowed brands, only their own price tier, plus what is already reserved. */
 async function fetchData() {
   const keys = (Array.isArray(profile.brands) ? profile.brands : []).filter((k) => /^[a-z0-9]+$/.test(k));
+  const scope = scopeOf(profile);   // "all", or limited to one warehouse by the owner: the shop only reads the documents of its own scope
   const [shopSnap, metaSnap, ...rest] = await Promise.all([
     getDoc(doc(db, "shops", profile.shopId)),
     getDoc(doc(db, "stock", "meta")),
-    ...keys.map((k) => getDoc(doc(db, "stock", `items__${k}`))),
+    ...keys.map((k) => getDoc(doc(db, "stock", itemsDocId(k, scope)))),
     ...keys.map((k) => getDoc(doc(db, "prices", `${profile.priceTier}__${k}`))),
-    ...keys.map((k) => getDoc(doc(db, "reserved", k)))
+    ...keys.map((k) => getDoc(doc(db, "reserved", reservedDocId(k, scope))))
   ]);
   const n = keys.length, itemSnaps = rest.slice(0, n), priceSnaps = rest.slice(n, 2 * n), reservedSnaps = rest.slice(2 * n);
   shop = shopSnap.exists() ? shopSnap.data() : { name: profile.shopName, currency: profile.currency, addresses: [] };

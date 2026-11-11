@@ -172,3 +172,42 @@ test("helpers", () => {
   assert.equal(effectiveAvailable({ id: "x", available: 5 }, undefined), 5);
   assert.deepEqual(planRelease({ lines: [{ brandKey: "b", itemId: "x", qty: 9 }] }, { b: { map: { x: 3 } } }), { b: {} });
 });
+
+// ---- stock scope: a shop may be limited to Eastman or CDEC stock
+const detail = { a1: { Eastman: { available: 1 }, CDEC: { available: 2 } } };   // a1: 3 in total, 1 at Eastman, 2 at CDEC
+const scoped = (scope, qty) => { const c = base(); c.user.stockScope = scope; c.stockDetail = detail; c.input.lines[0].qty = qty; return c; };
+
+test("an Eastman-only shop can only take what Eastman holds, a CDEC-only shop what CDEC holds", () => {
+  assert.throws(() => planSubmit(scoped("w1", 2)), (e) => e.code === "insufficient-stock" && e.details.available === 1);
+  assert.throws(() => planSubmit(scoped("w2", 3)), (e) => e.code === "insufficient-stock" && e.details.available === 2);
+  const r = planSubmit(scoped("w2", 2));
+  assert.equal(r.request.stockScope, "w2");
+  assert.deepEqual(r.byScope.skitrab.w2, { a1: 2 }); assert.deepEqual(r.byScope.skitrab.all, {});
+  assert.deepEqual(r.reserved.skitrab, { a1: 2 });            // the total map still counts everything
+  assert.equal(planSubmit(scoped("all", 3)).request.stockScope, "all");
+});
+
+test("a held quantity limits the other scopes only as much as it must", () => {
+  const first = planSubmit(scoped("w2", 2));                 // CDEC's two pairs are now held
+  const c = scoped("all", 2); c.reservedDocs = { skitrab: { map: first.reserved.skitrab, byScope: first.byScope.skitrab } };
+  assert.throws(() => planSubmit(c), (e) => e.details.available === 1);   // only Eastman's pair is left for an all-warehouses shop
+  const e = scoped("w1", 1); e.reservedDocs = c.reservedDocs;
+  assert.equal(planSubmit(e).request.lines[0].qty, 1);          // the Eastman-only shop is not affected by CDEC's hold
+});
+
+test("a shop with no warehouse detail for an item gets nothing in a restricted scope, but a normal shop is unaffected", () => {
+  const c = base(); c.user.stockScope = "w1";
+  assert.throws(() => planSubmit(c), (e) => e.code === "insufficient-stock" && e.details.available === 0);
+  assert.equal(planSubmit(base()).request.stockScope, "all");
+});
+
+test("releasing a restricted request frees its own scope, and old requests count as 'all'", () => {
+  const sub = planSubmit(scoped("w2", 2));
+  const reservedDocs = { skitrab: { map: sub.reserved.skitrab, byScope: sub.byScope.skitrab } };
+  const r = planAction({ action: "cancel", request: sub.request, actor: { isAdmin: true, email: "o" }, now: NOW, reservedDocs });
+  assert.deepEqual(r.reserved.skitrab, {}); assert.deepEqual(r.byScope.skitrab, { all: {}, w1: {}, w2: {} });
+  // a request and reservation document from before scopes existed
+  const old = planSubmit(base()).request; delete old.stockScope;
+  const legacy = planAction({ action: "cancel", request: old, actor: { isAdmin: true, email: "o" }, now: NOW, reservedDocs: { skitrab: { map: { a1: 2 } } } });
+  assert.deepEqual(legacy.reserved.skitrab, {}); assert.deepEqual(legacy.byScope.skitrab.all, {});
+});

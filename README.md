@@ -25,9 +25,9 @@ Firestore security rules ([`firestore.rules`](firestore.rules)) are what protect
 | `users/<email>` (an invitation) | the admin, and that person for their own record |
 | `shops/<id>` | the admin, and users of that shop |
 | `stock/meta` (date, contact) | admin and any invited, active user |
-| `stock/items__<brand>` (lines, no prices, no location) | admin, and only users whose invitation lists that brand |
+| `stock/items__<brand>` (lines, no prices, no location), plus `items__<brand>__w1` / `__w2` for shops limited to one warehouse | admin, and only users whose invitation lists that brand, and (for `__w1`/`__w2`) whose warehouse choice is that one |
 | `prices/<TIER>__<brand>` e.g. `SHOP_CAD__skitrab` | admin, and only users whose invitation names that tier **and** that brand |
-| `reserved/<brand>` (quantities held by open requests) | admin, and users who may see that brand; written only by Cloud Functions |
+| `reserved/<brand>` (quantities held by open requests; `reserved/<brand>__w1` / `__w2` for restricted shops) | admin, and users who may see that brand with the matching warehouse choice; written only by Cloud Functions |
 | `requests/<R-0001>` | admin, and users of the shop that sent it; written only by Cloud Functions |
 | `requestsPrivate/*`, `admin/*` (warehouse locations, brand list, upload details) | admin only |
 | everything else | nobody |
@@ -60,6 +60,16 @@ A shop can have several users; each user keeps their own language choice.
 - **New brand:** add its lines to the Catalogue sheet with the brand name in the `Brand` column, export, publish, then tick it on the shops that may see it.
   Two names that differ only by punctuation or case (for example `SkiTrab` and `Ski-Trab`) are refused.
 - A brand with a different season numbering can be given its own season in `seasonByBrand`.
+
+### Which warehouse a shop can buy from
+Admin → **Shops** → Edit → **Stock this shop can buy from**: *All warehouses* (default, the combined stock), *Eastman only* or *CDEC only*.
+- A restricted shop only sees (and can only request) the quantity held by that warehouse; items with none there do not appear. **No shop ever sees where stock is**:
+  each shop only receives the documents of its own choice, and the internal codes (`w1`, `w2`) do not name a warehouse.
+- Reservations stay correct across shops: an Eastman-only shop cannot take Eastman stock that is already held, while an all-warehouses shop's hold only
+  reduces a single warehouse when it has to (the exact rule is in `functions/src/scope.js`, with tests).
+- The export of each request carries `stockScope` (`all`, `eastman`, `cdec`): ship a restricted shop from its warehouse only.
+- After you **publish stock** the portal also refreshes the held quantities of restricted shops (Admin tells you if that step fails; pressing Publish again repeats it).
+- Admin → **Shop view** shows a shop with its own warehouse choice, exactly as the shop sees it.
 
 ### New season
 Edit `currentSeasonCode` and `currentSeasonLabel` in `tools/portal-settings.json`, then export again.

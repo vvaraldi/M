@@ -3,6 +3,8 @@
 // and in the browser test stand-in. The Cloud Function wraps these in one Firestore transaction,
 // which is what makes a reservation safe when two shops order the last pair at the same moment.
 
+import { scopeOf, capacities, maxAddable, normReserved, SCOPE_NAME } from "./scope.js";
+
 export const RESERVATION_DAYS = 7;
 export const REMINDER_BEFORE_DAYS = 2;   // reminder on day 5 of 7
 const DAY = 24 * 60 * 60 * 1000;
@@ -34,8 +36,9 @@ function cleanText(v, max, field) {
  * Plan a new request.
  * ctx: { user, shop, input:{lines:[{brandKey,itemId,qty}], addressIndex, po, notes, shipDate},
  *        itemsDocs:{brandKey:{brand,items:[]}}, priceDocs:{brandKey:{prices:{}}},
- *        reservedDocs:{brandKey:{map:{}}}, locations:{itemId:{Eastman:n,CDEC:n}}, now:Date, seq:number }
- * Returns { request, priv, reserved:{brandKey: newMap} }
+ *        reservedDocs:{brandKey:{map:{}, byScope?:{all,w1,w2}}}, locations:{itemId:{Eastman:n,CDEC:n}}, now:Date, seq:number }
+ * The user's stockScope ("all" | "w1" = Eastman only | "w2" = CDEC only; opaque codes, see scope.js) limits which warehouse
+ * stock the request may draw on. Returns { request, priv, reserved:{brandKey: newTotalMap}, byScope:{brandKey:{all,w1,w2}} }
  */
 export function planSubmit(ctx) {
   const { user, shop, input, itemsDocs = {}, priceDocs = {}, reservedDocs = {}, locations = {}, now, seq,
@@ -47,7 +50,8 @@ export function planSubmit(ctx) {
   if (!Array.isArray(rawLines) || rawLines.length < 1) throw new PlanError("invalid-argument", "The request has no items.");
   if (rawLines.length > 100) throw new PlanError("invalid-argument", "A request can have at most 100 lines.");
 
-  const seen = new Set(), lines = [], newReserved = {};
+  const scope = scopeOf(user);
+  const seen = new Set(), lines = [], newReserved = {}, newByScope = {};
   for (const [n, l] of rawLines.entries()) {
     if (!l || !isKey(l.brandKey) || typeof l.itemId !== "string" || !l.itemId) throw new PlanError("invalid-argument", `Line ${n + 1} is not valid.`);
     if (!brands.includes(l.brandKey)) throw new PlanError("permission-denied", "This brand is not enabled for your account.", { brandKey: l.brandKey });
@@ -58,8 +62,10 @@ export function planSubmit(ctx) {
     const doc = itemsDocs[l.brandKey];
     const item = doc && Array.isArray(doc.items) ? doc.items.find((i) => i.id === l.itemId) : null;
     if (!item) throw new PlanError("not-found", "An item in your request is no longer in stock.", { itemId: l.itemId });
-    const reservedMap = (newReserved[l.brandKey] ||= { ...((reservedDocs[l.brandKey] && reservedDocs[l.brandKey].map) || {}) });
-    const eff = effectiveAvailable(item, reservedMap);
+    if (!newReserved[l.brandKey]) { const n = normReserved(reservedDocs[l.brandKey]); newReserved[l.brandKey] = n.map; newByScope[l.brandKey] = n.byScope; }
+    const reservedMap = newReserved[l.brandKey], by = newByScope[l.brandKey];
+    const eff = maxAddable(scope, capacities(item, stockDetail[item.id]),
+      { all: by.all[item.id] || 0, w1: by.w1[item.id] || 0, w2: by.w2[item.id] || 0 });
     const label = [item.description, item.size].filter(Boolean).join(" ");
     if (l.qty < (item.minQty || 1)) throw new PlanError("invalid-argument", `${label}: the minimum quantity is ${item.minQty}.`, { itemId: item.id, minQty: item.minQty });
     if (l.qty > eff) throw new PlanError("insufficient-stock", `Not enough stock for ${label}: ${eff} available.`, { itemId: item.id, description: label, available: eff });
@@ -73,6 +79,7 @@ export function planSubmit(ctx) {
       lineTotal: unitPrice == null ? null : round2(unitPrice * l.qty), priceTbd: unitPrice == null
     });
     reservedMap[item.id] = (reservedMap[item.id] || 0) + l.qty;
+    by[scope][item.id] = (by[scope][item.id] || 0) + l.qty;
   }
 
   // delivery address: one of the shop's saved addresses (up to 3), chosen by index
@@ -94,7 +101,7 @@ export function planSubmit(ctx) {
 
   const priced = lines.filter((l) => !l.priceTbd);
   const request = {
-    schema: 1, number: requestNumber(seq), seq, status: "reserved",
+    schema: 1, number: requestNumber(seq), seq, status: "reserved", stockScope: scope,
     shopId: user.shopId, shopName: shop.name || user.shopName || "", userEmail: user.email,
     language: user.language || shop.language || "en", currency: user.currency || shop.currency, priceTier: user.priceTier,
     shipTo, po, notes, shipDate, lines,
@@ -109,7 +116,8 @@ export function planSubmit(ctx) {
   const sp = shopPrivate || {};
   const txt = (v) => (typeof v === "string" ? v.trim().slice(0, 300) : "");
   const priv = {
-    number: request.number, createdAt: now, stockAsOf: typeof stockAsOf === "string" ? stockAsOf : null,
+    number: request.number, createdAt: now, stockScope: SCOPE_NAME[scope],   // readable name for the owner's export (the request itself only carries the opaque code)
+    stockAsOf: typeof stockAsOf === "string" ? stockAsOf : null,
     lines: Object.fromEntries(lines.map((l) => [l.itemId, locations[l.itemId] || {}])),
     stock: Object.fromEntries(lines.map((l) => [l.itemId, stockDetail[l.itemId] || {}])),
     held: Object.fromEntries(lines.map((l) => [l.itemId, (newReserved[l.brandKey] && newReserved[l.brandKey][l.itemId]) || l.qty])),
@@ -118,19 +126,22 @@ export function planSubmit(ctx) {
       addresses: (Array.isArray(shop.addresses) ? shop.addresses : []).slice(0, 3).map((a) => ({ label: txt(a && a.label), text: txt(a && a.text) }))
     }
   };
-  return { request, priv, reserved: newReserved };
+  return { request, priv, reserved: newReserved, byScope: newByScope };
 }
 
-/** New reserved maps after releasing every line of `request`. */
-export function planRelease(request, reservedDocs = {}) {
-  const out = {};
+/** New reserved maps (totals) and per-scope maps after releasing every line of `request`. */
+export function planReleaseScoped(request, reservedDocs = {}) {
+  const maps = {}, byScope = {}, scope = scopeOf({ stockScope: request.stockScope });   // requests from before scopes existed are "all"
+  const take = (m, id, q) => { const left = (m[id] || 0) - q; if (left > 0) m[id] = left; else delete m[id]; };
   for (const l of request.lines || []) {
-    const map = (out[l.brandKey] ||= { ...((reservedDocs[l.brandKey] && reservedDocs[l.brandKey].map) || {}) });
-    const left = (map[l.itemId] || 0) - l.qty;
-    if (left > 0) map[l.itemId] = left; else delete map[l.itemId];
+    if (!maps[l.brandKey]) { const n = normReserved(reservedDocs[l.brandKey]); maps[l.brandKey] = n.map; byScope[l.brandKey] = n.byScope; }
+    take(maps[l.brandKey], l.itemId, l.qty);
+    take(byScope[l.brandKey][scope], l.itemId, l.qty);
   }
-  return out;
+  return { maps, byScope };
 }
+/** Same, totals only. */
+export const planRelease = (request, reservedDocs = {}) => planReleaseScoped(request, reservedDocs).maps;
 
 /**
  * Plan a status change. action: 'cancel' | 'release' | 'invoice' | 'extend' | 'expire'
@@ -141,31 +152,32 @@ export function planAction({ action, request, actor, now, reservedDocs = {} }) {
   if (!request) throw new PlanError("not-found", "Request not found.");
   const st = request.status, base = { statusChangedAt: now, statusChangedBy: actor.isSystem ? "system" : actor.email };
   const needAdmin = () => { if (!actor.isAdmin && !actor.isSystem) throw new PlanError("permission-denied", "Only the portal owner can do this."); };
-  const release = () => planRelease(request, reservedDocs);
+  const release = () => planReleaseScoped(request, reservedDocs);
+  const out = (patch, rel) => ({ patch, reserved: rel ? rel.maps : null, byScope: rel ? rel.byScope : null });
 
   switch (action) {
     case "cancel":
       if (!actor.isAdmin && !(actor.shopId && actor.shopId === request.shopId)) throw new PlanError("permission-denied", "This request belongs to another shop.");
       if (st !== "reserved") throw new PlanError("failed-precondition", "Only a reserved request can be cancelled.");
-      return { patch: { ...base, status: "cancelled" }, reserved: release() };
+      return out({ ...base, status: "cancelled" }, release());
     case "release":
       needAdmin();
       if (st !== "reserved") throw new PlanError("failed-precondition", "Only a reserved request can be released.");
-      return { patch: { ...base, status: "released" }, reserved: release() };
+      return out({ ...base, status: "released" }, release());
     case "invoice":
       needAdmin();
       if (!["reserved", "expired", "released"].includes(st)) throw new PlanError("failed-precondition", `A ${st} request cannot be marked invoiced.`);
-      return { patch: { ...base, status: "invoiced" }, reserved: st === "reserved" ? release() : null };
+      return out({ ...base, status: "invoiced" }, st === "reserved" ? release() : null);
     case "extend": {
       needAdmin();
       if (st !== "reserved") throw new PlanError("failed-precondition", "Only a reserved request can be extended.");
       const from = Math.max(now.getTime(), request.expiresAt.getTime());
-      return { patch: { ...base, expiresAt: new Date(from + RESERVATION_DAYS * DAY), reminderSent: false, extendedCount: (request.extendedCount || 0) + 1 }, reserved: null };
+      return out({ ...base, expiresAt: new Date(from + RESERVATION_DAYS * DAY), reminderSent: false, extendedCount: (request.extendedCount || 0) + 1 }, null);
     }
     case "expire":
       if (!actor.isSystem) throw new PlanError("permission-denied", "Only the system expires requests.");
       if (st !== "reserved" || request.expiresAt.getTime() > now.getTime()) throw new PlanError("failed-precondition", "Nothing to expire.");
-      return { patch: { ...base, status: "expired" }, reserved: release() };
+      return out({ ...base, status: "expired" }, release());
     default:
       throw new PlanError("invalid-argument", "Unknown action.");
   }

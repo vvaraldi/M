@@ -4,6 +4,7 @@ import {
   auth, db, onAuthStateChanged, signOut, doc, getDoc, getDocs, collection, writeBatch,
   serverTimestamp, sendLink, emailKey, callFn, storageUpload, storageDelete
 } from "./fb.js";
+import { SCOPE_LABEL, scopeOf, scopeItems, itemsDocId, reservedDocId } from "./stockscope.js";
 import { REGIONS, KINDS, regionFromCurrency, regionLabel, buildManifests, validateRecord, safeFileName, humanSize, privateByDefault } from "./library.js";
 import { ADMIN_EMAIL } from "./firebase-config.js";
 import { h } from "./render.js";
@@ -94,7 +95,8 @@ function renderShops() {
     const brands = Array.isArray(s.brands) ? (s.brands.length ? s.brands.map(brandLabel).join(", ") : "none") : "not set";
     body.append(h("tr", {},
       h("td", {}, h("b", { text: s.name }), (shopsPriv[s.id] && shopsPriv[s.id].customerId) ? h("span", { class: "hint", style: "display:block", text: shopsPriv[s.id].customerId }) : null),
-      h("td", { text: `${s.priceType || "SHOP"} · ${s.currency}` }, h("span", { class: "hint", style: "display:block", text: regionLabel(s.region || regionFromCurrency(s.currency)) })),
+      h("td", { text: `${s.priceType || "SHOP"} · ${s.currency}` }, h("span", { class: "hint", style: "display:block", text: regionLabel(s.region || regionFromCurrency(s.currency)) }),
+        scopeOf(s) !== "all" ? h("span", { class: "hint warn-text", style: "display:block", text: SCOPE_LABEL[scopeOf(s)] }) : null),
       h("td", { class: Array.isArray(s.brands) ? "" : "warn-text", text: brands }),
       h("td", { text: (s.language || "en").toUpperCase() }),
       h("td", { text: mine.length ? mine.map((u) => u.email + (Array.isArray(u.brandsOverride) ? " *" : "")).join(", ") : "–" }),
@@ -203,6 +205,7 @@ function openEditor(shop) {
   $("f-lang").value = shop ? (shop.language || "en") : "en";
   $("f-region").value = shop ? (shop.region || regionFromCurrency(shop.currency)) : "canada";
   regionTouched = !!(shop && shop.region);
+  $("f-scope").value = scopeOf(shop);
   $("f-active").checked = shop ? shop.active !== false : true;
   const pv = (shop && shopsPriv[shop.id]) || {};
   $("f-custid").value = pv.customerId || ""; $("f-tax").value = pv.taxMode || ""; $("f-country").value = pv.country || "";
@@ -256,18 +259,18 @@ $("shop-form").addEventListener("submit", async (e) => {
   if (dup) { const other = shops.find((s) => s.id === dup[0]); dlgError(`${customerId} is already used by ${other ? other.name : "another shop"}.`); return; }
   const priv = { customerId, taxMode: $("f-tax").value, country: normCountry($("f-country").value), province: normProvince($("f-prov").value), billTo: $("f-bill").value.trim() };
   const addresses = [0, 1, 2].map((i) => ({ label: $(`a-label-${i}`).value.trim(), text: $(`a-text-${i}`).value.trim() })).filter((a) => a.text);
-  const active = $("f-active").checked, language = $("f-lang").value, region = $("f-region").value;
+  const active = $("f-active").checked, language = $("f-lang").value, region = $("f-region").value, stockScope = $("f-scope").value;
   const ref = editing.id ? doc(db, "shops", editing.id) : doc(collection(db, "shops"));
   const shopId = ref.id, tier = tierOf(type, currency), shopBrands = [...editing.brands].sort();
 
   const btn = $("dlg-save"); btn.disabled = true; dlgError("");
   try {
     const batch = writeBatch(db);
-    batch.set(ref, { name, currency, priceType: type, priceTier: tier, brands: shopBrands, language, region, active, addresses, updatedAt: serverTimestamp() }, { merge: true });
+    batch.set(ref, { name, currency, priceType: type, priceTier: tier, brands: shopBrands, language, region, stockScope, active, addresses, updatedAt: serverTimestamp() }, { merge: true });
     batch.set(doc(db, "shopsPrivate", shopId), { ...priv, updatedAt: serverTimestamp() }, { merge: true });   // private: owner only
     for (const u of editing.users) {
       const data = {
-        email: u.email, shopId, shopName: name, currency, priceType: type, priceTier: tier, region,
+        email: u.email, shopId, shopName: name, currency, priceType: type, priceTier: tier, region, stockScope,
         brands: u.override ? [...u.override].sort() : shopBrands, brandsOverride: u.override ? [...u.override].sort() : null,
         active: active && u.userActive, userActive: u.userActive
       };
@@ -563,6 +566,7 @@ async function processFile(file) {
       ["File", file.name], ["Season", data.season || "–"], ["Stock sheet refreshed", data.stockRefreshedAt ? fmtDateTime(data.stockRefreshedAt) : "–"],
       ["Items", clean.items.length], ["Brands", Object.values(clean.brands).map((b) => `${b.name} ${b.count}`).join(", ")],
       ["Without a SHOP_CAD price", unpriced],
+      ["Items for Eastman-only / CDEC-only shops", ["w1", "w2"].map((sc) => scopeItems(clean.items, clean.stock, sc).length).join(" / ")],
       ["Price tiers", Object.keys(clean.prices).join(", ") || "none"], ["Items with a location (admin only)", Object.keys(clean.locations).length],
       ["Items with on hand / reserved detail", Object.keys(clean.stock).length + (Object.keys(clean.stock).length ? "" : "  (export again with the current tools\\export_stock.py)")]
     ];
@@ -618,7 +622,13 @@ $("publish").addEventListener("click", async () => {
 
     for (const [key, b] of Object.entries(clean.brands)) {
       const id = `items__${key}`; keepStock.add(id);
-      batch.set(doc(db, "stock", id), { schema: 1, brand: b.name, brandKey: key, items: clean.items.filter((i) => brandKey(i.brand) === key) });
+      const brandItems = clean.items.filter((i) => brandKey(i.brand) === key);
+      batch.set(doc(db, "stock", id), { schema: 1, brand: b.name, brandKey: key, items: brandItems });
+      // the same stock again per warehouse, for shops limited to Eastman or CDEC (a shop only ever reads its own scope's document)
+      for (const sc of ["w1", "w2"]) {
+        const sid = itemsDocId(key, sc); keepStock.add(sid);
+        batch.set(doc(db, "stock", sid), { schema: 1, brand: b.name, brandKey: key, scope: sc, items: scopeItems(brandItems, clean.stock, sc) });
+      }
       const ids = new Set(clean.items.filter((i) => brandKey(i.brand) === key).map((i) => i.id));
       for (const [tier, map] of Object.entries(clean.prices)) {
         const sub = Object.fromEntries(Object.entries(map).filter(([iid]) => ids.has(iid)));
@@ -647,7 +657,10 @@ $("publish").addEventListener("click", async () => {
     existingStock.docs.forEach((d) => { if (!keepStock.has(d.id)) batch.delete(d.ref); });
     existingPrices.docs.forEach((d) => { if (!keepPrices.has(d.id)) batch.delete(d.ref); });
     await batch.commit();
-    toast("Published. Shops now see the new stock.");
+    // what Eastman-only and CDEC-only shops see as held depends on the new warehouse quantities: refresh it
+    let note = "";
+    try { await callFn("refreshReserved", {}); } catch (e) { console.error(e); note = ` The held quantities for Eastman-only and CDEC-only shops could not be refreshed (${(e && (e.message || e.code)) || "error"}).`; }
+    toast("Published. Shops now see the new stock." + note, !!note);
     $("preview").hidden = true; $("file").value = ""; $("drop-name").textContent = ""; pendingFile = null;
     loadPublished(); loadShops();
   } catch (err) {
@@ -822,14 +835,14 @@ async function loadShopView() {
   if (!shop) { msg.textContent = "No shop yet: add one in the Shops tab."; msg.hidden = false; $("v-root").replaceChildren(); return; }
   const u = $("v-user").value ? users.find((x) => x.email === $("v-user").value) : null;
   const keys = (u ? u.brands : shop.brands) || [];
-  const tier = shop.priceTier, cur = shop.currency;
+  const tier = shop.priceTier, cur = shop.currency, scope = scopeOf(u || shop);
   setLang($("v-lang").value);
   try {
     const [metaSnap, ...rest] = await Promise.all([
       getDoc(doc(db, "stock", "meta")),
-      ...keys.map((k) => getDoc(doc(db, "stock", `items__${k}`))),
+      ...keys.map((k) => getDoc(doc(db, "stock", itemsDocId(k, scope)))),
       ...keys.map((k) => getDoc(doc(db, "prices", `${tier}__${k}`))),
-      ...keys.map((k) => getDoc(doc(db, "reserved", k)))
+      ...keys.map((k) => getDoc(doc(db, "reserved", reservedDocId(k, scope))))
     ]);
     const n = keys.length, itemSnaps = rest.slice(0, n), priceSnaps = rest.slice(n, 2 * n), resSnaps = rest.slice(2 * n);
     const items = [], prices = {}, reserved = {}, brands = [];
@@ -844,7 +857,7 @@ async function loadShopView() {
     brands.sort((a, b) => a.name.localeCompare(b.name));
     const meta = metaSnap.exists() ? metaSnap.data() : null;
     const when = meta && (meta.stockRefreshedAt || meta.generatedAt);
-    banner.replaceChildren(h("b", { text: "Previewing: " }), `${shop.name} · ${tier} · ${u ? u.email : "all users"} · brands: ${keys.map(brandLabel).join(", ") || "none"}`,
+    banner.replaceChildren(h("b", { text: "Previewing: " }), `${shop.name} · ${tier} · ${u ? u.email : "all users"} · brands: ${keys.map(brandLabel).join(", ") || "none"} · stock: ${SCOPE_LABEL[scope]}`,
       when ? h("span", {}, " · ", h("b", { text: "Stock as of " }), dateLabel(when)) : null);
     banner.hidden = false;
     const warn = [];

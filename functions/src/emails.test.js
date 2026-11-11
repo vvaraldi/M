@@ -49,7 +49,7 @@ test("owner email carries CSV and JSON and the warehouse split; shop email does 
 
 test("export format is stable and complete (schema 1)", () => {
   const { request, priv } = sample("en"); const x = exportShape(request, priv);
-  assert.deepEqual(Object.keys(x), ["schema", "number", "status", "createdAt", "expiresAt", "shop", "contact", "currency", "priceTier", "shipTo", "po", "notes", "shipDate", "stockAsOf", "lines", "subtotal", "hasPriceTbd"]);
+  assert.deepEqual(Object.keys(x), ["schema", "number", "status", "createdAt", "expiresAt", "shop", "contact", "currency", "priceTier", "stockScope", "shipTo", "po", "notes", "shipDate", "stockAsOf", "lines", "subtotal", "hasPriceTbd"]);
   assert.deepEqual(Object.keys(x.shop), ["id", "name", "customerId", "country", "province", "taxMode", "billTo", "addresses"]);
   assert.deepEqual(Object.keys(x.lines[0]), ["brand", "code", "sku", "description", "size", "color", "condition", "unit", "qty", "unitPrice", "lineTotal", "priceTbd", "estimatedPrice", "locations", "stock", "heldByPortal", "heldByThisRequest"]);
   assert.equal(x.createdAt, NOW.toISOString()); assert.deepEqual(x.lines[0].locations, { Eastman: 1, CDEC: 4 });

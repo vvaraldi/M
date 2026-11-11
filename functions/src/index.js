@@ -17,6 +17,7 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { checkDocumentAccess, contentTypeOf, MAX_PRIVATE_BYTES } from "./access.js";
+import { scopeViews, normReserved } from "./scope.js";
 import nodemailer from "nodemailer";
 import { planSubmit, planAction, needsReminder, PlanError } from "./planner.js";
 import { buildShopEmail, buildOwnerEmail, buildReminderEmail } from "./emails.js";
@@ -74,6 +75,18 @@ function secretShape() {
 /** Short, safe description of an email error (never contains the password). */
 const errText = (e) => `${(e && (e.code || e.responseCode)) || ""} ${(e && (e.response || e.message)) || e}`.trim().replace(/\s+/g, " ").slice(0, 300);
 
+/**
+ * Write what is reserved for one brand: reserved/<brand> (total + per scope, read by shops that see all warehouses) and the
+ * two "held" views read by scope-limited shops (reserved/<brand>__w1, __w2). Shops never see where stock is:
+ * each only reads the numbers for its own scope.
+ */
+function writeReserved(tx, brand, map, byScope, items, stockDetail) {
+  const updatedAt = Timestamp.now(), views = scopeViews(byScope, items, stockDetail);
+  tx.set(db.doc(`reserved/${brand}`), { map, byScope, updatedAt });
+  tx.set(db.doc(`reserved/${brand}__w1`), { map: views.w1, updatedAt });
+  tx.set(db.doc(`reserved/${brand}__w2`), { map: views.w2, updatedAt });
+}
+
 // ---------------------------------------------------------------- submitRequest
 // invoker "public": the web page calls the function directly; the sign-in is checked INSIDE (authedEmail) and by the rules.
 export const submitRequest = onCall({ region: REGION, cors: CORS, invoker: "public", secrets: [GMAIL_APP_PASSWORD], maxInstances: 5 }, async (req) => {
@@ -120,7 +133,8 @@ export const submitRequest = onCall({ region: REGION, cors: CORS, invoker: "publ
       // ---- then write, all or nothing
       tx.set(db.doc(`requests/${plan.request.number}`), plan.request);
       tx.set(db.doc(`requestsPrivate/${plan.request.number}`), plan.priv);
-      for (const [k, map] of Object.entries(plan.reserved)) tx.set(db.doc(`reserved/${k}`), { map, updatedAt: Timestamp.now() });
+      const detail = locSnap.exists ? (locSnap.data().stock || {}) : {};
+      for (const [k, map] of Object.entries(plan.reserved)) writeReserved(tx, k, map, plan.byScope[k], (itemsDocs[k] || {}).items, detail);
       tx.set(counterRef, { next: seq + 1 });
       return plan;
     });
@@ -155,13 +169,17 @@ async function applyAction(id, action, actor) {
       shopId = u.data().shopId;
     }
     const keys = [...new Set((request.lines || []).map((l) => l.brandKey))];
-    const rsnaps = keys.length ? await tx.getAll(...keys.map((k) => db.doc(`reserved/${k}`))) : [];
-    const reservedDocs = {};
-    keys.forEach((k, i) => { reservedDocs[k] = rsnaps[i].exists ? fromFs(rsnaps[i].data()) : { map: {} }; });
+    const rsnaps = keys.length ? await tx.getAll(...keys.map((k) => db.doc(`reserved/${k}`)), ...keys.map((k) => db.doc(`stock/items__${k}`)), db.doc("admin/locations")) : [];
+    const reservedDocs = {}, itemsOf = {};
+    keys.forEach((k, i) => {
+      reservedDocs[k] = rsnaps[i].exists ? fromFs(rsnaps[i].data()) : { map: {} };
+      itemsOf[k] = rsnaps[keys.length + i].exists ? (rsnaps[keys.length + i].data().items || []) : [];
+    });
+    const locSnap = rsnaps[2 * keys.length], detail = locSnap && locSnap.exists ? (locSnap.data().stock || {}) : {};
 
     const plan = planAction({ action, request, actor: { ...actor, shopId }, now: new Date(), reservedDocs });
     tx.update(db.doc(`requests/${id}`), plan.patch);
-    if (plan.reserved) for (const [k, map] of Object.entries(plan.reserved)) tx.set(db.doc(`reserved/${k}`), { map, updatedAt: Timestamp.now() });
+    if (plan.reserved) for (const [k, map] of Object.entries(plan.reserved)) writeReserved(tx, k, map, plan.byScope[k], itemsOf[k], detail);
     return { request, patch: plan.patch };
   });
 }
@@ -204,6 +222,26 @@ export const sendTestEmail = onCall({ region: REGION, cors: CORS, invoker: "publ
     logger.error("Test email failed", e);
     return { ok: false, error: errText(e), secretLength, shape: secretShape() };
   }
+});
+
+// ---------------------------------------------------------------- refreshReserved (owner only)
+// After a stock upload the warehouse quantities change, so what scope-limited shops see as "held" must be
+// recomputed. The Admin page calls this right after publishing. It also converts old reservation documents (no per-scope part).
+export const refreshReserved = onCall({ region: REGION, cors: CORS, invoker: "public", maxInstances: 2 }, async (req) => {
+  const email = authedEmail(req);
+  if (email !== OWNER_EMAIL) throw new HttpsError("permission-denied", "Only the portal owner can do this.");
+  const stockDocs = await db.collection("stock").get();
+  const brands = stockDocs.docs.map((d) => d.id).filter((id) => /^items__[a-z0-9]+$/.test(id)).map((id) => id.slice(7));
+  let refreshed = 0;
+  for (const k of brands) {
+    await db.runTransaction(async (tx) => {
+      const [rs, is, ls] = await tx.getAll(db.doc(`reserved/${k}`), db.doc(`stock/items__${k}`), db.doc("admin/locations"));
+      const n = normReserved(rs.exists ? fromFs(rs.data()) : null);
+      writeReserved(tx, k, n.map, n.byScope, is.exists ? (is.data().items || []) : [], ls.exists ? (ls.data().stock || {}) : {});
+    });
+    refreshed++;
+  }
+  return { refreshed };
 });
 
 // ---------------------------------------------------------------- getDocument

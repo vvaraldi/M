@@ -160,6 +160,8 @@
         <div class="field"><label for="f-type">Price type</label><select id="f-type"><option value="SHOP">Shop (dealer) price</option><option value="RETAIL">Retail price</option><option value="EXPORT">Export price (EUR only)</option></select></div>
         <div class="field"><label for="f-lang">Language</label><select id="f-lang"><option value="en">English</option><option value="fr">Français</option><option value="it">Italiano</option></select></div>
         <div class="field"><label for="f-region">Region (for catalogs and price lists)</label><select id="f-region"><option value="canada">Canada</option><option value="usa">USA</option><option value="other">Other countries</option></select></div>
+        <div class="field"><label for="f-scope">Stock this shop can buy from</label><select id="f-scope"><option value="all">All warehouses (combined)</option><option value="w1">Eastman only</option><option value="w2">CDEC only</option></select>
+          <span class="hint">The shop never sees where stock is held: it only gets the quantities of this choice.</span></div>
         <div class="field"><span class="lbl">Status</span><label class="check"><input type="checkbox" id="f-active" checked> Active (users can sign in)</label></div>
       </div>
       <div class="field"><span class="lbl">Brands this shop may see</span><div id="f-brands" class="brands"></div>

@@ -109,7 +109,7 @@ export function exportShape(r, priv) {
       taxMode: sp.taxMode || "", billTo: sp.billTo || "", addresses: sp.addresses || []
     },
     contact: { email: r.userEmail, language: r.language },
-    currency: r.currency, priceTier: r.priceTier, shipTo: r.shipTo || null, po: r.po || "", notes: r.notes || "", shipDate: r.shipDate || null,
+    currency: r.currency, priceTier: r.priceTier, stockScope: (priv && priv.stockScope) || "all", shipTo: r.shipTo || null, po: r.po || "", notes: r.notes || "", shipDate: r.shipDate || null,
     stockAsOf: (priv && priv.stockAsOf) || null,
     lines: r.lines.map((l) => ({
       brand: l.brand, code: l.code, sku: l.sku, description: l.description, size: l.size, color: l.color, condition: l.condition, unit: l.unit,

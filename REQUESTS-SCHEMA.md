@@ -27,6 +27,7 @@ Fields never change meaning within a schema version; new fields may be added. `s
   "contact": { "email": "buyer@example.test", "language": "fr" },
   "currency": "CAD",
   "priceTier": "SHOP_CAD",
+  "stockScope": "all",
   "shipTo": { "label": "Warehouse", "text": "5 Sample Road\nSpringfield QC" },
   "po": "PO-2026-114",
   "notes": "Free text from the shop",
@@ -68,6 +69,7 @@ Fields never change meaning within a schema version; new fields may be added. `s
 | `shop.country`, `province`, `billTo` | Private customer details entered by the owner, to create the customer in the workbook if it does not exist yet. `billTo` is the billing address. |
 | `shop.addresses` | All delivery addresses saved for the shop (up to 3). `shipTo` is the one chosen for this request. |
 | `stockAsOf` | When the Stock sheet was refreshed for the upload that this request's stock numbers come from. If it is old, trust the numbers less. |
+| `stockScope` | Which warehouse stock this shop may buy from, set by the owner on the shop: `all`, `eastman` (Eastman stock only) or `cdec` (CDEC stock only). **A shop limited to one warehouse must be shipped from that warehouse only.** Requests from before this field existed are `all`. |
 | `lines[].locations` | **Owner only.** *Available* quantity per warehouse (`Eastman`, `CDEC`) when the request was sent. A snapshot, not an allocation: decide which warehouse ships. |
 | `lines[].stock` | **Owner only.** Per warehouse: `onHand` (physical count), `reserved` (held by draft invoices in the workbook) and `available` (= onHand − reserved). Use `reserved` to avoid counting a pair twice when it is already on a draft invoice. |
 | `lines[].heldByThisRequest` | This request's own portal hold for the item: always equal to `qty`. |
@@ -92,7 +94,9 @@ Requests created before these fields existed leave them empty.
 | `requests/<R-0007>` | the request without warehouse locations | the owner and users of that shop |
 | `requestsPrivate/<R-0007>` | warehouse stock per line, `held`, `stockAsOf` and the shop's private customer details at the time of sending | the owner only |
 | `shopsPrivate/<shopId>` | `{ customerId, taxMode, country, province, billTo }`, edited in Admin → Shops | the owner only |
-| `reserved/<brand>` | `{ map: { <itemId>: qty held by open requests } }` | users who may see that brand |
+| `reserved/<brand>` | `{ map: { <itemId>: total held by open requests }, byScope: { all, w1, w2 } }` (w1 = Eastman-only shops, w2 = CDEC-only shops) | shops that see all warehouses |
+| `reserved/<brand>__w1`, `__w2` | `{ map: { <itemId>: quantity to show as held } }` for shops limited to one warehouse, recomputed by the functions | shops limited to that warehouse |
+| `requests/<R>.stockScope` | `all`, `w1` or `w2`: opaque codes (the export `stockScope` says `all`, `eastman` or `cdec`) | the owner and users of that shop |
 | `counters/requests` | `{ next: n }` request number counter | nobody (Cloud Functions only) |
 
 Browsers never write these: all changes go through the Cloud Functions `submitRequest` and `updateRequest`, which check
