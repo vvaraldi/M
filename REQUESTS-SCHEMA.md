@@ -39,6 +39,7 @@ Fields never change meaning within a schema version; new fields may be added. `s
       "description": "GARA PLUS", "size": "162", "color": "", "condition": "New", "unit": "pair",
       "qty": 2, "unitPrice": 714.97, "lineTotal": 1429.94,
       "priceTbd": false, "estimatedPrice": false,
+      "listPrice": null, "rebatePct": null, "rebateReason": "",
       "locations": { "Eastman": 1, "CDEC": 4 },
       "stock": {
         "Eastman": { "onHand": 1, "reserved": 0, "available": 1 },
@@ -63,6 +64,7 @@ Fields never change meaning within a schema version; new fields may be added. `s
 | `lines[].code` | The item (part) code shown to shops. |
 | `lines[].unit` | `pair`, `piece` or `m` (skin rolls are sold and priced per metre). |
 | `lines[].unitPrice`, `lineTotal` | In `currency`, before tax. Both `null` when `priceTbd` is true: the owner prices that line on the invoice. |
+| `lines[].listPrice`, `rebatePct`, `rebateReason` | Previous-season rebate (older collection, New condition): `listPrice` = regular price per unit, `rebatePct` = integer % taken off it (the shop % or the retail % depending on the price tier), `rebateReason` = `"Previous season"`. `unitPrice` is the net price and `priceTbd` is false. All three are `null` / `""` on a line without rebate. Put them on the invoice line like the workbook's invoice editor does. The collection's age is deliberately not exported. |
 | `lines[].estimatedPrice` | The catalogue price ends in .99, which the workbook treats as an estimate. |
 | `shop.customerId` | The customer number in the workbook's Customers sheet (for example `C008`), entered by the owner on the shop in Admin. `""` until set, so match on it when present. |
 | `shop.taxMode` | The workbook's tax modes: `QC` (TPS + TVQ), `GST` (TPS only), `None` (no tax, export), `Manual`, or `""` when not set. |

@@ -28,8 +28,16 @@ except ImportError:  # friendly message for a first run
     sys.exit("openpyxl is missing. Run:  python -m pip install --user openpyxl")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCHEMA = 1
+SCHEMA = 2   # 2 = adds the previous-season rebate fields (item.previousSeason/age/lastSeason, price b/pct/mb, rebateRules...)
 LOCATIONS = ("Eastman", "CDEC", "Other")
+OPEN_SEASON = 50   # a Catalogue line with ToSeason 50 is still current
+
+# Which Catalogue columns feed each price tier: (price column, suggested-retail column)
+TIER_COLUMNS = {
+    "SHOP_CAD": ("DealerCAD", "RetailCAD"), "SHOP_USD": ("DealerUSD", "RetailUSD"),
+    "SHOP_EUR": ("DealerEUR", "RetailEUR"), "RETAIL_CAD": ("RetailCAD", None),
+    "RETAIL_USD": ("RetailUSD", None), "RETAIL_EUR": ("RetailEUR", None), "EXPORT_EUR": ("ExportEUR", None),
+}
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -96,7 +104,7 @@ def read_catalogue(wb):
     if missing:
         raise SystemExit(f"Catalogue sheet is missing columns: {missing}")
     by_ean = defaultdict(list)
-    for row in ws.iter_rows(min_row=hdr_row + 1, values_only=True):
+    for n, row in enumerate(ws.iter_rows(min_row=hdr_row + 1, values_only=True)):
         if row[ix["Ref"]] is None:
             continue
         ean = clean(row[ix["EAN"]])
@@ -104,8 +112,115 @@ def read_catalogue(wb):
             continue
         rec = {k: row[ix[k]] for k in need}
         rec["Ref"] = row[ix["Ref"]]
+        rec["_row"] = n   # position in the sheet: on a tie for "latest", the lower row wins
         by_ean[ean].append(rec)
     return by_ean
+
+
+def index_by_part(by_ean):
+    """PartNo -> all Catalogue lines with that part number (second lookup after the barcode)."""
+    out = defaultdict(list)
+    for lines in by_ean.values():
+        for l in lines:
+            pn = clean(l.get("PartNo"))
+            if pn:
+                out[pn].append(l)
+    return out
+
+
+# ----------------------------------------------------------------------------- previous-season rebates
+def season_value(to_season, current):
+    """ToSeason as a number; 50 (still current) counts as the current season."""
+    return current if to_season == OPEN_SEASON else to_season
+
+
+def latest_price_line(lines_by_sku, lines_by_part, col, current):
+    """The Catalogue line that holds the LATEST available price for one price column, or None.
+
+    Per price column: among the lines with an active ToSeason and a price > 0, the highest season wins
+    (on a tie the line lower in the sheet, i.e. the higher Ref, as the workbook's Stock refresh does).
+    Looked up by barcode first, then by part number."""
+    for lines in (lines_by_sku, lines_by_part):
+        cands = [l for l in lines if num(l.get("ToSeason")) is not None and (num(l.get(col)) or 0) > 0]
+        if cands:
+            return max(cands, key=lambda l: (season_value(l["ToSeason"], current), l["_row"]))
+    return None
+
+
+def as_fraction(v):
+    """A percentage typed as 30 instead of 30 % is read as 30 % (anything above 1 is divided by 100), like the macros do."""
+    v = num(v)
+    if v is None or v < 0:
+        return 0.0
+    return v / 100 if v > 1 else v
+
+
+def read_rebate_rules(wb):
+    """Rules from the Settings sheet: ({brand_key: [{brand, ageFrom, ageTo, retail, shop}]}, [conditions]).
+
+    openpyxl read-only mode does not expose Excel tables, so the headers are located in the sheet."""
+    ws = wb["Settings"]
+    hdr_row, cols = find_header(ws, ["Brand", "Age from", "Age to", "Retail %", "Shop %"], max_scan=80)
+    c_from, c_to, c_ret, c_shop = (cols[h][0] for h in ("Age from", "Age to", "Retail %", "Shop %"))
+    c_brand = max(i for i in cols["Brand"] if i < c_from)
+    rules = defaultdict(list)
+    for row in ws.iter_rows(min_row=hdr_row + 1, values_only=True):
+        brand = clean(row[c_brand]) if len(row) > c_brand else ""
+        if not brand:
+            break   # the table ends at the first empty Brand
+        a_from, a_to = num(row[c_from]), num(row[c_to])
+        if a_from is None or a_to is None:
+            continue
+        rules[brand_key(brand)].append({"brand": brand, "ageFrom": int(a_from), "ageTo": int(a_to),
+                                        "retail": as_fraction(row[c_ret]), "shop": as_fraction(row[c_shop])})
+    conditions = []
+    try:
+        chdr, ccols = find_header(ws, ["Age rule conditions"], max_scan=80)
+        c_cond = ccols["Age rule conditions"][0]
+        for row in ws.iter_rows(min_row=chdr + 1, values_only=True):
+            v = clean(row[c_cond]) if len(row) > c_cond else ""
+            if not v:
+                break
+            conditions.append(v)
+    except SystemExit:
+        pass
+    return dict(rules), conditions
+
+
+def read_workbook_season(wb):
+    """The workbook's current selling season (defined name set_Season, else Settings!C29), e.g. '26-27'."""
+    try:
+        dn = wb.defined_names["set_Season"]
+        sheet, cell = next(iter(dn.destinations))
+        v = wb[sheet][cell.replace("$", "")].value
+    except Exception:
+        v = wb["Settings"]["C29"].value
+    return clean(v)
+
+
+def rebate_for(rules, brand, age, tier_kind):
+    """Rebate as a fraction for a brand and age (tier_kind 'retail' or 'shop'); None when there is no rule or no matching age band."""
+    for r in rules.get(brand_key(brand), []):
+        if r["ageFrom"] <= age <= r["ageTo"]:
+            return r[tier_kind]
+    return None
+
+
+def rebate_entry(base, pct, msrp_base=None, retail_pct=0.0):
+    """One price entry for an item with a previous-season rebate.
+
+    p = net price, b = base (list) price and pct = integer percent (only when pct > 0).
+    For shop tiers m = suggested retail after the RETAIL rebate and mb = the base retail price."""
+    entry = {"p": cents(base * (1 - pct))}
+    if pct > 0:
+        entry["b"], entry["pct"] = cents(base), int(round(pct * 100))
+    if is_estimate(cents(base)):
+        entry["est"] = True   # the Catalogue marks prices ending in .99 as estimates: the base decides
+    if msrp_base:
+        entry["m"] = cents(msrp_base * (1 - retail_pct))
+        if retail_pct > 0:
+            entry["mb"] = cents(msrp_base)
+    return entry
 
 
 def pick_catalogue_line(lines, season, fallback):
@@ -184,6 +299,10 @@ def read_stock(wb, settings):
     for h in ("Category", "Size", "Color", "Reserved"):
         if h not in ix:
             raise SystemExit(f"Stock sheet is missing column '{h}'.")
+    # columns written by the workbook's Stock refresh since 2026-11-11 (age and previous-season rebates); found by header text
+    age_cols = {"lastSeason": "Last season", "age": "Age (years)", "retailPct": "Retail rebate %", "shopPct": "Shop rebate %",
+                "retailLatest": "Retail CAD (latest)", "retailNet": "Retail CAD net", "shopLatest": "Shop CAD (latest)", "shopNet": "Shop CAD net"}
+    has_age_cols = all(h in ix for h in age_cols.values())
 
     stamp = None
     for row in ws.iter_rows(min_row=1, max_row=hdr_row, values_only=True):
@@ -213,8 +332,13 @@ def read_stock(wb, settings):
             "onHand": num(row[ix.get("On hand")]) if "On hand" in ix else None,
             "reserved": num(row[ix["Reserved"]]) or 0,
             "available": avail,
+            "lastSeason": clean(row[ix["Last season"]]) if has_age_cols else "",
+            "age": int(num(row[ix["Age (years)"]])) if has_age_cols and num(row[ix["Age (years)"]]) is not None else None,
+            # the workbook's own figures, used only to cross-check the export's calculation
+            "wbRetailNet": num(row[ix["Retail CAD net"]]) if has_age_cols else None,
+            "wbShopNet": num(row[ix["Shop CAD net"]]) if has_age_cols else None,
         })
-    return lines, stamp
+    return lines, stamp, has_age_cols
 
 
 def unit_for(category, description, settings):
@@ -241,10 +365,23 @@ def main():
 
     season = settings["currentSeasonCode"]
     wb = openpyxl.load_workbook(wb_path, data_only=True, read_only=True, keep_vba=False)
-    stock_lines, stamp = read_stock(wb, settings)
+    stock_lines, stamp, has_age_cols = read_stock(wb, settings)
     catalogue = read_catalogue(wb)
+    by_part = index_by_part(catalogue)
     move_codes = read_move_codes(wb)
+    rules, rule_conditions = read_rebate_rules(wb)
+    wb_season = read_workbook_season(wb)
     wb.close()
+
+    # the season in the workbook (Settings, set_Season) and in portal-settings.json must agree: the ages depend on it
+    m_season = re.match(r"^(\d{2})-\d{2}$", wb_season or "")
+    if not m_season or int(m_season.group(1)) != season:
+        sys.exit(f"The workbook's current season is '{wb_season}' but portal-settings.json says {season} ({settings['currentSeasonLabel']}). "
+                 "Fix currentSeasonCode / currentSeasonLabel in tools/portal-settings.json (or the workbook) so they agree, then export again.")
+    rule_set = set(rule_conditions)
+    priced_conditions = set(settings["pricedConditions"]) | rule_set
+    hide_conditions = set(settings.get("hideConditions", []))
+    rebate_count = defaultdict(int)   # (brand, age band) -> items priced with a previous-season rebate
 
     # ---- merge identical SKU + condition held in several locations
     merged = OrderedDict()
@@ -266,6 +403,9 @@ def main():
     hide = set(settings.get("hideCategories", []))
     for (sku, cond), m in merged.items():
         if m["available"] <= 0 or m["category"] in hide:
+            continue
+        if cond in hide_conditions:   # e.g. mounted ski + binding kits: not sold through the portal
+            rep["hidden_conditions"].append(f'{m["description"]} {m["size"]} [{cond}] ({sku})')
             continue
         iid = item_id(sku, cond, used_ids)
         unit = unit_for(m["category"], m["description"], settings)
@@ -294,6 +434,9 @@ def main():
             "condition": cond, "available": qty, "unit": unit,
             "minQty": settings.get("minQty", {}).get(unit, 1),
         }
+        age = m["age"]
+        if age is not None:
+            item["age"], item["lastSeason"] = age, m["lastSeason"]   # for sorting and filtering on the website
         items.append(item)
         private_loc[iid] = {k: v for k, v in m["locations"].items() if v}
         num_out = lambda v: int(v) if float(v).is_integer() else round(v, 2)
@@ -306,7 +449,43 @@ def main():
         if sku.startswith("P:"):
             rep["no_catalogue_match"].append(label)
             continue
-        if cond not in settings["pricedConditions"]:
+        # ---- previous-season rebate: a rule item is New (or another condition listed in the workbook's rule conditions),
+        # at least 1 year old, and its brand has a rebate for that age. It is priced from the LATEST price in the Catalogue.
+        retail_pct = rebate_for(rules, brand, age, "retail") if age is not None and age >= 1 and cond in rule_set else None
+        shop_pct = rebate_for(rules, brand, age, "shop") if age is not None and age >= 1 and cond in rule_set else None
+        if age is not None and age >= 1:
+            if cond in rule_set and not ((retail_pct or 0) > 0 or (shop_pct or 0) > 0):
+                rep["aged_no_rule"].append(f"{label} age {age}")
+            elif cond not in rule_set:
+                rep["aged_outside_rule"].append(f"{label} age {age}")
+        if (retail_pct or 0) > 0 or (shop_pct or 0) > 0:
+            part = code if code_src == "catalogue" else ""
+            part_lines = by_part.get(part, []) if part else []
+            got = 0
+            for tier in settings["priceTiers"]:
+                pcol, mcol = TIER_COLUMNS[tier]
+                line = latest_price_line(all_lines, part_lines, pcol, season)
+                if line is None:
+                    continue
+                if tier == "SHOP_CAD" and not any(line is l for l in all_lines):
+                    rep["price_from_part_number"].append(f'{label}: base price taken from another line with part number {part} (size {line.get("Size")})')
+                msrp_line = latest_price_line(all_lines, part_lines, mcol, season) if mcol else None
+                prices[tier][iid] = rebate_entry(num(line[pcol]), (retail_pct if tier.startswith("RETAIL") else shop_pct) or 0.0,
+                                                 num(msrp_line[mcol]) if msrp_line else None, retail_pct or 0.0)
+                got += 1
+            if got == 0:
+                rep["no_price_for_season"].append(label)
+                continue
+            item["previousSeason"] = True
+            band = next(r for r in rules[brand_key(brand)] if r["ageFrom"] <= age <= r["ageTo"])
+            rebate_count[(brand, f'{band["ageFrom"]}' if band["ageFrom"] == band["ageTo"] else f'{band["ageFrom"]}-{band["ageTo"]}' if band["ageTo"] < 99 else f'{band["ageFrom"]}+')] += 1
+            # cross-check against the workbook's own CAD figures (a 1-cent difference on an exact half cent is normal: VBA rounds half to even)
+            for tier, wb_net in (("SHOP_CAD", m["wbShopNet"]), ("RETAIL_CAD", m["wbRetailNet"])):
+                if wb_net is not None and iid in prices[tier] and abs(prices[tier][iid]["p"] - wb_net) > 0.011:
+                    rep["crosscheck"].append(f'{label}: {tier} export {prices[tier][iid]["p"]:.2f}, workbook {wb_net:.2f}')
+            continue
+
+        if cond not in priced_conditions:
             rep["non_new_on_request"].append(label)
             continue
         if cat_line is None:
@@ -314,14 +493,9 @@ def main():
             continue
         if how == "older":
             rep["price_from_older_season"].append(label)
-        src = {  # tier -> (price column, msrp column)
-            "SHOP_CAD": ("DealerCAD", "RetailCAD"), "SHOP_USD": ("DealerUSD", "RetailUSD"),
-            "SHOP_EUR": ("DealerEUR", "RetailEUR"), "RETAIL_CAD": ("RetailCAD", None),
-            "RETAIL_USD": ("RetailUSD", None), "RETAIL_EUR": ("RetailEUR", None), "EXPORT_EUR": ("ExportEUR", None),
-        }
         got = 0
         for tier in settings["priceTiers"]:
-            pcol, mcol = src[tier]
+            pcol, mcol = TIER_COLUMNS[tier]
             p = num(cat_line[pcol])
             if p is None or p <= 0:
                 continue
@@ -357,6 +531,11 @@ def main():
         "generatedAt": now.isoformat(timespec="seconds"),
         "stockRefreshedAt": stamp.isoformat(timespec="minutes") if stamp else None,
         "season": settings["currentSeasonLabel"],
+        "currentSeason": settings["currentSeasonLabel"],
+        # the rebate table and conditions exactly as in the workbook (Settings, tAgeRules): the website shows them as a legend
+        "rebateRules": {rs[0]["brand"]: [{"ageFrom": r["ageFrom"], "ageTo": r["ageTo"], "retailPct": int(round(r["retail"] * 100)),
+                                          "shopPct": int(round(r["shop"] * 100))} for r in rs] for rs in rules.values()},
+        "rebateConditions": rule_conditions,
         "items": items,
         "prices": prices,
         "private": {"locations": private_loc, "stock": private_stock},
@@ -383,11 +562,31 @@ def main():
     for tier in settings["priceTiers"]:
         P(f"  prices {tier:<11}: {len(prices[tier])} of {len(items)} items")
     P("")
+    # previous-season rebates
+    n_rebate = sum(rebate_count.values())
+    P(f"Previous-season rebates: {n_rebate} items priced with a rebate"
+      + (" (" + ", ".join(f"{b} age {band}: {n}" for (b, band), n in sorted(rebate_count.items())) + ")" if n_rebate else ""))
+    for rs in rules.values():
+        P(f"  rule {rs[0]['brand']}: " + "; ".join(f"age {r['ageFrom']}" + (f"-{r['ageTo']}" if r['ageTo'] != r['ageFrom'] else "") + f" = {r['retail']*100:g}% retail / {r['shop']*100:g}% shop" for r in rs))
+    P(f"  conditions: {', '.join(rule_conditions) or '(none)'}   current season: {wb_season}")
+    if not has_age_cols:
+        P("  WARNING: the Stock sheet has no age / rebate columns. Open the workbook, open the Stock sheet (it refreshes), save, and export again.")
+    elif not any(l["age"] is not None for l in stock_lines):
+        P("  WARNING: the age columns of the Stock sheet are all empty. The workbook was probably not refreshed since the macro update:"
+          " open it, open the Stock sheet, save, and export again.")
+    if not rules:
+        P("  WARNING: no rule found in the Settings sheet (table tAgeRules): no previous-season rebate is applied.")
+    P("")
     titles = {
         "no_catalogue_match": "NO CATALOGUE MATCH (code starts with P:), no price: fix in the workbook",
         "no_price_for_season": f"NO PRICE FOR SEASON {settings['currentSeasonLabel']} (shown as 'price on request')",
         "price_from_older_season": "PRICE TAKEN FROM AN OLDER SEASON (fallbackToLastKnownPrice is on)",
-        "non_new_on_request": "NOT NEW (Demo / Old graphics / Defect): price on request until clearance pricing exists",
+        "non_new_on_request": "CONDITION WITHOUT A RULE (Used / Demo / Defect...): price on request, set case by case by the owner",
+        "aged_no_rule": "AGED ITEMS WITHOUT A REBATE RULE (brand or age band not in tAgeRules): normal price logic applies",
+        "aged_outside_rule": "AGED ITEMS IN A CONDITION OUTSIDE THE RULE (price on request)",
+        "hidden_conditions": "HIDDEN FROM THE PORTAL (condition listed in hideConditions of portal-settings.json, e.g. mounted kits)",
+        "price_from_part_number": "PREVIOUS-SEASON BASE PRICE TAKEN FROM A LINE WITH THE SAME PART NUMBER (the item's own barcode has no price): check it",
+        "crosscheck": "CROSS-CHECK: export differs from the workbook's own net price by more than a cent",
         "rounded_to_zero": "Fractional quantity rounded down to zero (not published)",
         "brand_assumed": "BRAND NOT IN THE CATALOGUE (brand taken from a rule or the default in portal-settings.json)",
         "no_item_code": "NO ITEM CODE found (shown without a code)",

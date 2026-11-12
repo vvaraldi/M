@@ -14,11 +14,13 @@ test("web export equals email export, including Firestore-style timestamps", () 
     itemsDocs: { skitrab: { brand: "SkiTrab", items: [
       { id: "a1", code: "1", sku: "2", description: "GARA", size: "162", condition: "New", unit: "pair", available: 5, minQty: 1 },
       { id: "n1", code: "3", sku: "4", description: "TR1", size: "1", condition: "Demo", unit: "pair", available: 2, minQty: 1 }] } },
-    priceDocs: { skitrab: { prices: { a1: { p: 10.5, est: true } } } }, reservedDocs: {}, locations: { a1: { CDEC: 2 } }, now: NOW, seq: 3,
+    priceDocs: { skitrab: { prices: { a1: { p: 10.5, b: 14, pct: 25, est: true } } } }, reservedDocs: {}, locations: { a1: { CDEC: 2 } }, now: NOW, seq: 3,
     stockDetail: { a1: { CDEC: { onHand: 3, reserved: 1, available: 2 } } }, stockAsOf: "2026-11-08T17:53",
     shopPrivate: { customerId: "C008", country: "Canada", province: "QC", taxMode: "QC", billTo: "9 Bill St\nGatineau" }
   });
   const asFirestore = { ...request, createdAt: { toDate: () => request.createdAt }, expiresAt: { toDate: () => request.expiresAt } };
   assert.deepEqual(webShape(asFirestore, priv), emailShape(request, priv));
   assert.equal(webCsv(asFirestore, priv), emailCsv(request, priv));
+  const line = emailShape(request, priv).lines[0];
+  assert.deepEqual([line.listPrice, line.rebatePct, line.rebateReason], [14, 25, "Previous season"]);
 });

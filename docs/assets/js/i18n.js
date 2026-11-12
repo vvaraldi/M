@@ -53,7 +53,9 @@ const S = {
     nav_docs: "Documents", d_title: "Catalogs and price lists", d_catalogs: "Catalogs", d_pricelists: "Price lists",
     d_open: "Open catalog", d_download: "Download", d_season: "Season {season}",
     d_empty: "No document is available for your brands yet. Please check back soon.", d_err: "The documents could not be loaded. Please reload the page.",
-    d_preparing: "Preparing…", d_dl_err: "The file could not be downloaded. Please try again."
+    d_preparing: "Preparing…", d_dl_err: "The file could not be downloaded. Please try again.",
+    prev_season: "Previous season", prev_only: "Previous season only", sort_label: "Sort", sort_default: "Default order", sort_rebate: "Biggest rebate first",
+    prev_note: "Previous-season items are older collections sold at a reduced price; the crossed-out price is the regular price."
   },
   fr: {
     portal: "Portail partenaires", sign_out: "Se déconnecter", loading: "Chargement…",
@@ -104,7 +106,9 @@ const S = {
     nav_docs: "Documents", d_title: "Catalogues et listes de prix", d_catalogs: "Catalogues", d_pricelists: "Listes de prix",
     d_open: "Ouvrir le catalogue", d_download: "Télécharger", d_season: "Saison {season}",
     d_empty: "Aucun document n'est encore disponible pour vos marques. Revenez bientôt.", d_err: "Les documents n'ont pas pu être chargés. Veuillez recharger la page.",
-    d_preparing: "Préparation…", d_dl_err: "Le fichier n'a pas pu être téléchargé. Veuillez réessayer."
+    d_preparing: "Préparation…", d_dl_err: "Le fichier n'a pas pu être téléchargé. Veuillez réessayer.",
+    prev_season: "Saison précédente", prev_only: "Saison précédente seulement", sort_label: "Trier", sort_default: "Ordre par défaut", sort_rebate: "Plus grand rabais d'abord",
+    prev_note: "Les articles de saison précédente sont des collections plus anciennes vendues à prix réduit; le prix barré est le prix régulier."
   },
   it: {
     portal: "Portale rivenditori", sign_out: "Esci", loading: "Caricamento…",
@@ -155,7 +159,9 @@ const S = {
     nav_docs: "Documenti", d_title: "Cataloghi e listini", d_catalogs: "Cataloghi", d_pricelists: "Listini prezzi",
     d_open: "Apri il catalogo", d_download: "Scarica", d_season: "Stagione {season}",
     d_empty: "Nessun documento è ancora disponibile per le tue marche. Riprova presto.", d_err: "Impossibile caricare i documenti. Ricarica la pagina.",
-    d_preparing: "Preparazione…", d_dl_err: "Impossibile scaricare il file. Riprova."
+    d_preparing: "Preparazione…", d_dl_err: "Impossibile scaricare il file. Riprova.",
+    prev_season: "Stagione precedente", prev_only: "Solo stagione precedente", sort_label: "Ordina", sort_default: "Ordine predefinito", sort_rebate: "Maggiore sconto prima",
+    prev_note: "Gli articoli della stagione precedente sono collezioni meno recenti in vendita a prezzo ridotto; il prezzo barrato è il prezzo di listino."
   }
 };
 

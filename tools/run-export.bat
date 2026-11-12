@@ -22,6 +22,10 @@ if errorlevel 1 (
 )
 
 echo.
+echo ---- Previous-season rebates (rules come from the workbook, Settings sheet, table tAgeRules) ----
+findstr /B /C:"Previous-season rebates" /C:"  rule " /C:"  WARNING" output\report.txt
+echo Full details: tools\output\report.txt
+echo.
 echo Opening the folder with stock.json selected.
 echo Drag it onto the box in the portal Admin page, tab "Stock upload", or use "Choose file".
 explorer /select,"%~dp0output\stock.json"

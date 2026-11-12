@@ -76,7 +76,11 @@ export function planSubmit(ctx) {
       itemId: item.id, brandKey: l.brandKey, brand: doc.brand || l.brandKey, code: item.code || "", sku: item.sku || "",
       description: item.description, size: item.size || "", color: item.color || "", condition: item.condition, unit: item.unit,
       qty: l.qty, unitPrice, msrp: price && typeof price.m === "number" ? price.m : null, est: !!(price && price.est),
-      lineTotal: unitPrice == null ? null : round2(unitPrice * l.qty), priceTbd: unitPrice == null
+      lineTotal: unitPrice == null ? null : round2(unitPrice * l.qty), priceTbd: unitPrice == null,
+      // previous-season rebate carried by the price: the invoice draft puts it on the line like the workbook's invoice editor does
+      listPrice: price && Number.isInteger(price.pct) && typeof price.b === "number" ? price.b : null,
+      rebatePct: price && Number.isInteger(price.pct) && price.pct > 0 ? price.pct : null,
+      rebateReason: price && Number.isInteger(price.pct) && price.pct > 0 ? "Previous season" : ""
     });
     reservedMap[item.id] = (reservedMap[item.id] || 0) + l.qty;
     by[scope][item.id] = (by[scope][item.id] || 0) + l.qty;

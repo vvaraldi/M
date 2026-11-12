@@ -33,13 +33,17 @@ export function filterItems(items, f) {
     if (f.group && groupKey(i.category) !== f.group) return false;
     if (f.size && i.size !== f.size) return false;
     if (f.condition && i.condition !== f.condition) return false;
+    if (f.prev && !(f.prices && f.prices[i.id] && f.prices[i.id].pct)) return false;   // a previous-season item that carries a rebate in THIS shop's price list
     if (!words.length) return true;
     const hay = norm([i.description, i.size, i.color, i.code, i.sku, i.family, categoryLabel(i.category), conditionLabel(i.condition)].join(" "));
     return words.every((w) => hay.includes(w));
   });
 }
 
-export const BADGE = { New: "b-new", Demo: "b-demo", "Old graphics": "b-old", Defect: "b-defect" };
+/** Order for "biggest rebate first": items whose price carries the largest previous-season % come first (stable for the rest). */
+export const sortByRebate = (items, prices) => [...items].sort((a, b) => ((prices[b.id] && prices[b.id].pct) || 0) - ((prices[a.id] && prices[a.id].pct) || 0));
+
+export const BADGE ={ New: "b-new", Demo: "b-demo", "Old graphics": "b-old", Defect: "b-defect" };
 
 /** What can still be requested: the last stock upload minus what open requests hold. */
 export const effective = (item, reserved) => Math.max(0, (item.available || 0) - ((reserved && reserved[item.id]) || 0));
@@ -48,6 +52,8 @@ export function priceCell(entry, currency, unit) {
   if (!entry) return h("div", { class: "price none", text: t("price_on_request") });
   const per = unit === "m" ? " / m" : ""; // skin rolls are priced per metre
   const el = h("div", { class: "price" }, money(entry.p, currency) + per);
+  // previous-season item: net price above, regular price crossed out and the rebate badge (the age itself is never shown)
+  if (entry.pct && entry.b > entry.p) el.append(h("small", { class: "was" }, h("s", { text: money(entry.b, currency) + per }), h("span", { class: "badge b-rebate", text: `−${entry.pct} %` })));
   if (entry.est) el.append(h("span", { class: "badge b-est", title: t("est_tip"), text: t("est") }));
   if (entry.m && entry.m > entry.p) el.append(h("small", { text: t("msrp") + " " + money(entry.m, currency) + per }));
   return el;
@@ -105,7 +111,8 @@ export function renderStock(container, items, ctx) {
             : h("span", { class: "avail" }, held ? h("span", { class: "badge b-held", text: t("reserved_badge") }) : "0");
           return h("div", { class: "vrow" + (cart ? " has-qty" : "") + (eff <= 0 ? " is-out" : "") },
             h("span", {}, [i.size, i.color].filter(Boolean).join(" · ") || "–", i.code ? h("span", { class: "sub", text: i.code }) : null),
-            h("span", {}, h("span", { class: "badge " + (BADGE[i.condition] || "b-new"), text: conditionLabel(i.condition) })),
+            h("span", {}, h("span", { class: "badge " + (BADGE[i.condition] || "b-new"), text: conditionLabel(i.condition) }),
+              (ctx.prices[i.id] && ctx.prices[i.id].pct) ? h("span", { class: "badge b-prev", text: t("prev_season") }) : null),
             avail,
             priceCell(ctx.prices[i.id], ctx.currency, i.unit),
             cart ? (eff > 0 ? qtyControl(i, eff, cart, ctx.onCartChange) : h("span", {})) : null);

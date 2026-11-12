@@ -51,7 +51,7 @@ test("export format is stable and complete (schema 1)", () => {
   const { request, priv } = sample("en"); const x = exportShape(request, priv);
   assert.deepEqual(Object.keys(x), ["schema", "number", "status", "createdAt", "expiresAt", "shop", "contact", "currency", "priceTier", "stockScope", "shipTo", "po", "notes", "shipDate", "stockAsOf", "lines", "subtotal", "hasPriceTbd"]);
   assert.deepEqual(Object.keys(x.shop), ["id", "name", "customerId", "country", "province", "taxMode", "billTo", "addresses"]);
-  assert.deepEqual(Object.keys(x.lines[0]), ["brand", "code", "sku", "description", "size", "color", "condition", "unit", "qty", "unitPrice", "lineTotal", "priceTbd", "estimatedPrice", "locations", "stock", "heldByPortal", "heldByThisRequest"]);
+  assert.deepEqual(Object.keys(x.lines[0]), ["brand", "code", "sku", "description", "size", "color", "condition", "unit", "qty", "unitPrice", "lineTotal", "priceTbd", "estimatedPrice", "listPrice", "rebatePct", "rebateReason", "locations", "stock", "heldByPortal", "heldByThisRequest"]);
   assert.equal(x.createdAt, NOW.toISOString()); assert.deepEqual(x.lines[0].locations, { Eastman: 1, CDEC: 4 });
   assert.equal(x.lines[1].priceTbd, true); assert.equal(x.lines[1].unitPrice, null);
   JSON.parse(JSON.stringify(x));
@@ -112,7 +112,7 @@ test("export includes customer details, per-warehouse stock and what the portal 
   assert.equal(x.lines[0].heldByPortal, 3);          // 1 held by another request + 2 by this one
   assert.equal(x.lines[0].heldByThisRequest, 2);     // this request's own hold = its quantity
   const csv = requestCsv(request, priv).trim().split("\r\n");
-  assert.ok(csv[0].endsWith("held_by_portal,held_by_this_request") && csv[0].includes("cdec_on_hand"));
+  assert.ok(csv[0].endsWith("held_by_portal,held_by_this_request,list_price,rebate_pct,rebate_reason") && csv[0].includes("cdec_on_hand"));
   assert.ok(csv[1].includes("C008,QC,QC,2,0,2,5,2,3,3,2"), csv[1]);
   // old requests (no private details) still export cleanly
   const old = exportShape(request, { lines: {} });

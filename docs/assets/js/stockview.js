@@ -1,7 +1,7 @@
 // The stock browser (search, brand / category chips, size and condition filters, product cards).
 // Used by the portal page and by the admin "Shop view", so the admin sees exactly what a shop sees.
 import { t, countLabel, conditionLabel } from "./i18n.js";
-import { h, filterItems, presentGroups, presentSizes, presentConditions, renderStock } from "./render.js";
+import { h, filterItems, presentGroups, presentSizes, presentConditions, renderStock, sortByRebate } from "./render.js";
 
 /**
  * createStockView(root, { cart, onCartChange })
@@ -13,18 +13,21 @@ export function createStockView(root, opts = {}) {
     search: h("input", { type: "search", autocomplete: "off" }),
     size: h("select", { class: "sel" }),
     cond: h("select", { class: "sel" }),
+    sort: h("select", { class: "sel" }),
     brandChips: h("div", { class: "chips", role: "group" }),
     groupChips: h("div", { class: "chips", role: "group" }),
+    prevChip: h("button", { class: "chip", type: "button", "aria-pressed": "false" }),
+    prevNote: h("p", { class: "hint prev-note" }),
     count: h("p", { class: "count", "aria-live": "polite" }),
     list: h("div", { class: "list-grid" })
   };
   const label = h("label", { class: "sr-only" });
   root.replaceChildren(
-    h("div", { class: "toolbar" }, h("div", { class: "search" }, h("span", { class: "search-ico", "aria-hidden": "true" }), label, dom.search), dom.size, dom.cond),
-    dom.brandChips, dom.groupChips, dom.count, dom.list);
+    h("div", { class: "toolbar" }, h("div", { class: "search" }, h("span", { class: "search-ico", "aria-hidden": "true" }), label, dom.search), dom.size, dom.cond, dom.sort),
+    dom.brandChips, dom.groupChips, dom.prevChip, dom.prevNote, dom.count, dom.list);
 
   let data = { items: [], prices: {}, reserved: {}, brands: [], currency: "CAD" };
-  const f = { query: "", brand: "", group: "", size: "", condition: "" };
+  const f = { query: "", brand: "", group: "", size: "", condition: "", prev: false, sort: "" };
 
   const fillSelect = (sel, first, values, labelOf) => {
     const keep = sel.value;
@@ -33,7 +36,8 @@ export function createStockView(root, opts = {}) {
   };
 
   function renderList() {
-    const shown = filterItems(data.items, f);
+    let shown = filterItems(data.items, { ...f, prices: data.prices });
+    if (f.sort === "rebate") shown = sortByRebate(shown, data.prices);
     dom.count.textContent = countLabel(shown.length);
     if (!shown.length) { dom.list.replaceChildren(h("div", { class: "empty", text: t("no_results") })); return; }
     renderStock(dom.list, shown, {
@@ -71,17 +75,29 @@ export function createStockView(root, opts = {}) {
       return b;
     };
     dom.groupChips.replaceChildren(mkg("", t("all")), ...groups.map((g) => mkg(g, t(g))));
+
+    // previous-season items: a filter, a sort and one line of explanation, only when the stock has some
+    const hasPrev = scope.some((i) => data.prices[i.id] && data.prices[i.id].pct);
+    if (!hasPrev) { f.prev = false; f.sort = ""; }
+    dom.prevChip.hidden = dom.sort.hidden = dom.prevNote.hidden = !hasPrev;
+    dom.prevChip.textContent = t("prev_only"); dom.prevChip.setAttribute("aria-pressed", String(f.prev));
+    dom.prevNote.textContent = t("prev_note");
+    dom.sort.setAttribute("aria-label", t("sort_label"));
+    dom.sort.replaceChildren(h("option", { value: "", text: t("sort_default") }), h("option", { value: "rebate", text: t("sort_rebate") }));
+    dom.sort.value = f.sort;
     renderList();
   }
 
   dom.search.addEventListener("input", () => { f.query = dom.search.value; renderList(); });
   dom.size.addEventListener("change", () => { f.size = dom.size.value; renderList(); });
   dom.cond.addEventListener("change", () => { f.condition = dom.cond.value; renderList(); });
+  dom.sort.addEventListener("change", () => { f.sort = dom.sort.value; renderList(); });
+  dom.prevChip.addEventListener("click", () => { f.prev = !f.prev; dom.prevChip.setAttribute("aria-pressed", String(f.prev)); renderList(); });
 
   return {
     setData(d, resetFilters = false) {
       data = { items: [], prices: {}, reserved: {}, brands: [], currency: "CAD", ...d };
-      if (resetFilters) { Object.assign(f, { query: "", brand: "", group: "", size: "", condition: "" }); dom.search.value = ""; }
+      if (resetFilters) { Object.assign(f, { query: "", brand: "", group: "", size: "", condition: "", prev: false, sort: "" }); dom.search.value = ""; }
       render();
     },
     render

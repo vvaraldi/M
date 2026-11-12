@@ -59,7 +59,7 @@ function shopTable(r, tx, lang) {
 <td style="padding:6px 8px;border-bottom:1px solid #e8ebec">${esc(lineName(l))}${l.code ? `<br><span style="color:#5a6f7a;font-size:12px">${esc(l.code)}</span>` : ""}</td>
 <td style="padding:6px 8px;border-bottom:1px solid #e8ebec">${esc(l.size)}</td>
 <td style="padding:6px 8px;border-bottom:1px solid #e8ebec;text-align:right">${l.qty} ${esc(unitWord(l.unit, l.qty, lang))}</td>
-<td style="padding:6px 8px;border-bottom:1px solid #e8ebec;text-align:right">${l.priceTbd ? esc(tx.tbd) : esc(money(l.unitPrice, r.currency, lang)) + (l.unit === "m" ? " / m" : "") + (l.est ? ` <span style="color:#5a6f7a;font-size:11px">(${esc(tx.est)})</span>` : "")}</td>
+<td style="padding:6px 8px;border-bottom:1px solid #e8ebec;text-align:right">${l.priceTbd ? esc(tx.tbd) : esc(money(l.unitPrice, r.currency, lang)) + (l.unit === "m" ? " / m" : "") + (l.est ? ` <span style="color:#5a6f7a;font-size:11px">(${esc(tx.est)})</span>` : "") + (l.rebatePct ? ` <span style="color:#5a6f7a;font-size:11px">(-${l.rebatePct} %)</span>` : "")}</td>
 <td style="padding:6px 8px;border-bottom:1px solid #e8ebec;text-align:right">${l.priceTbd ? "–" : esc(money(l.lineTotal, r.currency, lang))}</td></tr>`).join("");
   return `<table style="border-collapse:collapse;width:100%;font-size:14px"><thead><tr style="background:#004D71;color:#fff">
 <th style="padding:7px 8px;text-align:left">${esc(tx.h_item)}</th><th style="padding:7px 8px;text-align:left">${esc(tx.h_size)}</th><th style="padding:7px 8px;text-align:right">${esc(tx.h_qty)}</th><th style="padding:7px 8px;text-align:right">${esc(tx.h_price)}</th><th style="padding:7px 8px;text-align:right">${esc(tx.h_total)}</th></tr></thead>
@@ -78,7 +78,7 @@ function shell(inner) {
   return `<div style="font-family:Segoe UI,Arial,sans-serif;color:#12303e;max-width:680px"><div style="background:#004D71;color:#C4D600;padding:12px 16px;font-weight:700;letter-spacing:.15em">M</div><div style="padding:16px 4px">${inner}</div></div>`;
 }
 function plainLines(r, lang) {
-  return r.lines.map((l) => `- ${l.description}${l.size ? " " + l.size : ""}${l.code ? " [" + l.code + "]" : ""}: ${l.qty} ${unitWord(l.unit, l.qty, lang)}` + (l.priceTbd ? "" : ` x ${money(l.unitPrice, r.currency, lang)} = ${money(l.lineTotal, r.currency, lang)}`)).join("\n");
+  return r.lines.map((l) => `- ${l.description}${l.size ? " " + l.size : ""}${l.code ? " [" + l.code + "]" : ""}: ${l.qty} ${unitWord(l.unit, l.qty, lang)}` + (l.priceTbd ? "" : ` x ${money(l.unitPrice, r.currency, lang)}${l.rebatePct ? ` (-${l.rebatePct} %)` : ""} = ${money(l.lineTotal, r.currency, lang)}`)).join("\n");
 }
 
 /** Confirmation to the shop user, in the language of the request. */
@@ -114,6 +114,7 @@ export function exportShape(r, priv) {
     lines: r.lines.map((l) => ({
       brand: l.brand, code: l.code, sku: l.sku, description: l.description, size: l.size, color: l.color, condition: l.condition, unit: l.unit,
       qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, priceTbd: !!l.priceTbd, estimatedPrice: !!l.est,
+      listPrice: l.listPrice ?? null, rebatePct: l.rebatePct ?? null, rebateReason: l.rebateReason || "",
       locations: loc[l.itemId] || {}, stock: stock[l.itemId] || {}, heldByPortal: held[l.itemId] ?? null, heldByThisRequest: l.qty
     })),
     subtotal: r.subtotal, hasPriceTbd: !!r.hasTbd
@@ -124,12 +125,12 @@ const csvCell = (v) => { const s = v == null ? "" : String(v); return /[",\n;]/.
 export function requestCsv(r, priv) {
   const x = exportShape(r, priv);
   const head = ["request", "shop", "contact", "currency", "po", "ship_to", "brand", "code", "barcode", "description", "size", "color", "condition", "qty", "unit", "unit_price", "line_total", "price_tbd", "eastman", "cdec",
-    "customer_id", "province", "tax_mode", "eastman_on_hand", "eastman_reserved", "eastman_available", "cdec_on_hand", "cdec_reserved", "cdec_available", "held_by_portal", "held_by_this_request"];
+    "customer_id", "province", "tax_mode", "eastman_on_hand", "eastman_reserved", "eastman_available", "cdec_on_hand", "cdec_reserved", "cdec_available", "held_by_portal", "held_by_this_request", "list_price", "rebate_pct", "rebate_reason"];
   const shipTo = x.shipTo ? [x.shipTo.label, x.shipTo.text].filter(Boolean).join(" / ").replace(/\n/g, ", ") : "";
   const rows = x.lines.map((l) => [x.number, x.shop.name, x.contact.email, x.currency, x.po, shipTo, l.brand, l.code, l.sku, l.description, l.size, l.color, l.condition, l.qty, l.unit,
     l.unitPrice, l.lineTotal, l.priceTbd ? "yes" : "", l.locations.Eastman || 0, l.locations.CDEC || 0,
     x.shop.customerId, x.shop.province, x.shop.taxMode,
-    ...["Eastman", "CDEC"].flatMap((w) => { const s = l.stock[w] || {}; return [s.onHand ?? "", s.reserved ?? "", s.available ?? ""]; }), l.heldByPortal ?? "", l.heldByThisRequest]);
+    ...["Eastman", "CDEC"].flatMap((w) => { const s = l.stock[w] || {}; return [s.onHand ?? "", s.reserved ?? "", s.available ?? ""]; }), l.heldByPortal ?? "", l.heldByThisRequest, l.listPrice ?? "", l.rebatePct ?? "", l.rebateReason]);
   return "﻿" + [head, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
 
@@ -164,7 +165,7 @@ function ownerText(x, r, expiresLong) {
   out.push(`LINES  (stock as of ${x.stockAsOf || "unknown"}; "on drafts" = held by draft invoices in the workbook)`);
   x.lines.forEach((l, i) => {
     out.push(`${i + 1}. [${l.brand}] ${l.code || "(no code)"}  ${l.description} ${l.size}${l.color ? " " + l.color : ""}  (${l.condition})`);
-    out.push(`   barcode ${l.sku || "-"} · qty ${l.qty} ${l.unit} · ${l.priceTbd ? "price TBD (to be priced on the invoice)" : `${money_(l.unitPrice)}${l.unit === "m" ? " / m" : ""}${l.estimatedPrice ? " (estimate)" : ""} = ${money_(l.lineTotal)}`}`);
+    out.push(`   barcode ${l.sku || "-"} · qty ${l.qty} ${l.unit} · ${l.priceTbd ? "price TBD (to be priced on the invoice)" : `${money_(l.unitPrice)}${l.unit === "m" ? " / m" : ""}${l.estimatedPrice ? " (estimate)" : ""} = ${money_(l.lineTotal)}${l.rebatePct ? `  [list ${money_(l.listPrice)}, -${l.rebatePct}% ${l.rebateReason}]` : ""}`}`);
     const parts = stockParts(l);
     out.push(`   ${parts.length ? parts.join("  |  ") : "no stock detail for this item"}`);
     out.push(`   portal holds: this request ${l.heldByThisRequest} · all open portal requests together ${l.heldByPortal ?? "unknown"} (the workbook does not see these holds)`);
@@ -178,7 +179,7 @@ function ownerText(x, r, expiresLong) {
 export function buildOwnerEmail(r, priv) {
   const x = exportShape(r, priv), cdec = x.lines.filter((l) => (l.locations.CDEC || 0) > 0).length;
   const rows = x.lines.map((l) => `<tr><td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.brand)}</td><td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.code)}<br><span style="color:#5a6f7a;font-size:11px">${esc(l.sku || "no barcode")}</span></td>
-<td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.description)} ${esc(l.size)}${l.color ? " " + esc(l.color) : ""} <i>(${esc(l.condition)})</i></td>
+<td style="padding:5px 8px;border-bottom:1px solid #e8ebec">${esc(l.description)} ${esc(l.size)}${l.color ? " " + esc(l.color) : ""} <i>(${esc(l.condition)})</i>${l.rebatePct ? `<br><span style="color:#5a6f7a;font-size:11px">${esc(l.rebateReason)} -${l.rebatePct}% (list ${esc(money(l.listPrice, x.currency, "en"))})</span>` : ""}</td>
 <td style="padding:5px 8px;border-bottom:1px solid #e8ebec;text-align:right">${l.qty} ${esc(l.unit)}</td>
 <td style="padding:5px 8px;border-bottom:1px solid #e8ebec;text-align:right">${l.priceTbd ? "<b>TBD</b>" : esc(money(l.lineTotal, x.currency, "en"))}</td>
 <td style="padding:5px 8px;border-bottom:1px solid #e8ebec;font-size:12px">${stockParts(l).map(esc).join("<br>") || "no stock detail"}<br><span style="color:#5a6f7a">portal holds: this request ${l.heldByThisRequest} · all open requests ${l.heldByPortal ?? "?"}</span></td></tr>`).join("");

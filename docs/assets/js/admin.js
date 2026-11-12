@@ -27,7 +27,8 @@ let pendingFile = null;
 
 const TIER_RE = /^(SHOP|RETAIL|EXPORT)_(CAD|USD|EUR)$/;
 const KEY_RE = /^[a-z0-9]+$/;
-const ITEM_KEYS = ["id", "brand", "code", "sku", "category", "family", "description", "size", "color", "condition", "available", "unit", "minQty", "img"];
+const ITEM_KEYS = ["id", "brand", "code", "sku", "category", "family", "description", "size", "color", "condition", "available", "unit", "minQty", "img",
+  "previousSeason"];   // the age and last season stay in the export file only: shops see the badge and the label, not the age
 const EMAIL_RE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 
 // ------------------------------------------------------------------ small helpers
@@ -503,8 +504,8 @@ async function loadPublished() {
 }
 
 function sanitize(data) {
-  if (!data || data.schema !== 1 || !Array.isArray(data.items) || !data.prices || typeof data.prices !== "object")
-    throw new Error("This does not look like a stock.json produced by tools/export_stock.py (schema 1).");
+  if (!data || ![1, 2].includes(data.schema) || !Array.isArray(data.items) || !data.prices || typeof data.prices !== "object")
+    throw new Error("This does not look like a stock.json produced by tools/export_stock.py (schema 1 or 2).");
   const ids = new Set(), brands = {};      // brands: key -> { name, count }
   const items = data.items.map((i, n) => {
     for (const k of ["id", "description", "category", "condition", "unit", "brand"]) if (typeof i[k] !== "string" || !i[k]) throw new Error(`Item ${n + 1}: missing "${k}". Export again with the current tools/export_stock.py.`);
@@ -526,7 +527,11 @@ function sanitize(data) {
     for (const [id, p] of Object.entries(map)) {
       if (!ids.has(id)) throw new Error(`Price for unknown item ${id} in ${tier}.`);
       if (typeof p.p !== "number" || !(p.p > 0)) throw new Error(`Bad price for ${id} in ${tier}.`);
-      prices[tier][id] = { p: p.p, ...(p.m > 0 ? { m: p.m } : {}), ...(p.est ? { est: true } : {}) };
+      // previous-season rebate (schema 2): b = base (list) price, pct = integer percent, mb = base suggested retail (m is then the net retail)
+      const rebate = p.pct !== undefined || p.b !== undefined;
+      if (rebate && !(Number.isInteger(p.pct) && p.pct >= 1 && p.pct <= 99 && p.b > p.p)) throw new Error(`Bad rebate on ${id} in ${tier}.`);
+      prices[tier][id] = { p: p.p, ...(p.m > 0 ? { m: p.m } : {}), ...(p.est ? { est: true } : {}),
+        ...(rebate ? { b: p.b, pct: p.pct } : {}), ...(p.mb > 0 ? { mb: p.mb } : {}) };
     }
   }
   const locations = (data.private && data.private.locations) || {};
@@ -566,6 +571,7 @@ async function processFile(file) {
       ["File", file.name], ["Season", data.season || "–"], ["Stock sheet refreshed", data.stockRefreshedAt ? fmtDateTime(data.stockRefreshedAt) : "–"],
       ["Items", clean.items.length], ["Brands", Object.values(clean.brands).map((b) => `${b.name} ${b.count}`).join(", ")],
       ["Without a SHOP_CAD price", unpriced],
+      ["Previous-season rebates", data.schema >= 2 ? `${clean.items.filter((i) => i.previousSeason).length} items priced with a rebate` : "none: this is an older export (schema 1), export again with the current tools\\export_stock.py"],
       ["Items for Eastman-only / CDEC-only shops", ["w1", "w2"].map((sc) => scopeItems(clean.items, clean.stock, sc).length).join(" / ")],
       ["Price tiers", Object.keys(clean.prices).join(", ") || "none"], ["Items with a location (admin only)", Object.keys(clean.locations).length],
       ["Items with on hand / reserved detail", Object.keys(clean.stock).length + (Object.keys(clean.stock).length ? "" : "  (export again with the current tools\\export_stock.py)")]

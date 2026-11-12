@@ -14,6 +14,8 @@
 
   "fallbackToLastKnownPrice": false,
   "pricedConditions": ["New"],
+  "_comment_rebates": "The previous-season rebate table and the conditions it applies to are read from the workbook (Settings, tAgeRules): never copy the percentages here.",
+  "hideConditions": ["Mounted & New", "Mounted & Used"],
 
   "units": {
     "Ski": "pair",

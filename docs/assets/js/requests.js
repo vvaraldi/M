@@ -52,10 +52,11 @@ export function renderCartView(root, ctx) {
       h("div", { class: "cinfo" },
         h("b", { text: item.description }), " ",
         h("span", { class: "badge " + (BADGE[item.condition] || "b-new"), text: conditionLabel(item.condition) }),
+        (price && price.pct) ? h("span", { class: "badge b-prev", text: t("prev_season") }) : null,
         h("div", { class: "sub", text: [ctx.brands.length > 1 ? item.brand : "", item.size, item.color, item.code].filter(Boolean).join(" · ") })),
       h("div", { class: "cqty" }, qtyControl(item, eff, cartApi.cart, rerender), h("span", { class: "unit", text: unitLabel(item.unit, e.qty) })),
       h("div", { class: "cprice" },
-        price ? h("span", {}, money(price.p, ctx.currency) + per) : h("span", { class: "tbd", text: t("r_tbd") }),
+        price ? h("span", {}, price.pct && price.b > price.p ? h("s", { text: money(price.b, ctx.currency) + per }) : null, money(price.p, ctx.currency) + per) : h("span", { class: "tbd", text: t("r_tbd") }),
         h("b", { text: lineTotal == null ? "–" : money(lineTotal, ctx.currency) })),
       remove);
   });

@@ -43,7 +43,23 @@ Firestore security rules ([`firestore.rules`](firestore.rules)) are what protect
 Prices come from the Catalogue sheet line valid for the season set in
 [`tools/portal-settings.json`](tools/portal-settings.json) (`currentSeasonCode`; 26 = 26-27).
 A price ending in `.99` is shown with an "est." tag. Items without a current-season price show "Price on request".
-Demo, Old graphics and Defect items also show "Price on request" until clearance pricing is added (phase 3).
+Used, Demo and Defect items show "Price on request" (you price them case by case on the invoice). Mounted ski + binding kits
+(`Mounted & New`, `Mounted & Used`) are not shown on the portal at all (`hideConditions` in `portal-settings.json`).
+
+### Previous-season rebates
+Older collections are sold with a standard rebate that depends on the brand and on the **age** of the collection (current season minus the last season the item is in
+the Catalogue). **The percentages live in one place only: the workbook** (Settings sheet, table `tAgeRules`, plus the list `Age rule conditions`), and the
+workbook's Stock sheet carries each item's age. To change a percentage: edit `tAgeRules`, open the Stock sheet (it refreshes), save, run `run-export.bat`, upload `stock.json`.
+- The export prices a **New** item aged 1 year or more from the item's **latest** Catalogue price (per price column, by barcode then part number), minus the brand's rebate:
+  the *retail* % on the Retail price lists and the *shop* % on the Shop **and Export EUR** lists. Age 0, brands without rules and conditions outside the rule keep the normal logic.
+- Shops see the net price large, the regular price crossed out, a `-25 %` badge and a **Previous season** label (FR *Saison précédente*, IT *Stagione precedente*),
+  a *Previous season only* filter and a *Biggest rebate first* sort. **The age is never shown to shops** (and the age and last season stay in the export file, not in what is published).
+  The suggested retail price shown next to a shop price is the retail price after the retail rebate.
+- A request line carries `listPrice`, `rebatePct` and `rebateReason: "Previous season"` (see `REQUESTS-SCHEMA.md`) so the invoice draft can carry the rebate on the line.
+- `run-export.bat` prints the rebate summary; `tools/output/report.txt` lists aged items without a rule, aged items in other conditions (on request), hidden mounted kits,
+  base prices borrowed from another line with the same part number, and any difference of more than a cent from the workbook's own CAD net prices.
+  It stops if the workbook's current season and `portal-settings.json` disagree, and warns if the Stock sheet has no (or empty) age columns: open the workbook, open the Stock sheet, save, export again.
+- `stock.json` is now schema 2. Publish with the new Admin page (it also accepts schema 1).
 
 ### Add or change a shop
 Admin page → **Shops**: name, currency, price type (Shop / Retail / Export), language, **brands**, up to 3 addresses,
@@ -171,7 +187,7 @@ firestore.rules, storage.rules   security rules      firebase.json, .firebaserc 
 
 1. **Phase 1 (this):** sign-in, shops and users, stock page, export + upload, per-shop and per-user brand access.
 2. **Phase 2 (built):** quote requests that reserve stock for 7 days, emails, request management, shop view in Admin.
-3. **Phase 3:** catalogs and price lists per brand and region (built); product images, clearance pricing (to do).
+3. **Phase 3:** catalogs and price lists per brand and region (built); previous-season rebates (built); product images (to do).
 4. **Phase 4:** automation (CDEC shipment email, invoice drafting, ledger).
 
 Fonts: Source Sans 3 and Nunito Sans, SIL Open Font License (see `docs/assets/fonts/LICENSE-*.txt`).

@@ -33,7 +33,8 @@ Read with: [REQUESTS-SCHEMA.md](REQUESTS-SCHEMA.md) (data format) and `..\SKITRA
 - Match each line to the **Catalogue** by `sku` (the barcode / EAN). A line with an empty `sku` was kept under a `P:` code: match by `code` and `description`, and tell the owner.
 - `qty` is the quantity. `unit` is `pair`, `piece` or `m`. For `m` (skin rolls) the price is **per metre**.
 - `unitPrice` and `lineTotal` are in `currency`, before tax.
-- **`priceTbd: true`** means the portal had no price (Demo, Old graphics, Defect, or no current-season price). The owner prices these lines. Do not invent a price: ask.
+- **`priceTbd: true`** means the portal had no price (Used, Demo, Defect, an item with no catalogue match, or no price at all). The owner prices these lines. Do not invent a price: ask.
+- **Previous-season lines** (`rebatePct` set, `rebateReason: "Previous season"`): `unitPrice` is already the NET price the shop saw, `listPrice` is the regular (latest catalogue) price and `rebatePct` the integer % off it. Build the invoice line exactly like the workbook's invoice editor does for an aged item: `ListUnit` = `listPrice`, `RebatePct` = `rebatePct`, `RebateReason` = `Previous season`, so the invoice shows the rebate and the amount equals `lineTotal` (a 1-cent difference on an exact half cent is normal: the export rounds half up, VBA rounds half to even). The percentage is the shop % on the Shop and Export price lists and the retail % on the Retail one. The age is never shown to the customer. Mounted pairs are not sold through the portal.
 - `estimatedPrice: true` means the catalogue price ends in .99, which the workbook treats as an estimate. Point it out to the owner.
 - Keep the request number and the customer's PO number on the invoice (`number`, `po`). Notes from the shop are in `notes`.
 
@@ -85,7 +86,7 @@ Other statuses: `expired` (the hold ended by itself), `cancelled` (the shop canc
 
 ## 7. Red flags: stop and tell the owner
 - `shop.customerId` or `shop.taxMode` is empty.
-- Any line with `priceTbd: true`, or with `estimatedPrice: true`.
+- Any line with `priceTbd: true`, or with `estimatedPrice: true`. A line with `rebatePct` is NOT a red flag: its price is known; only check that `listPrice x (1 - rebatePct/100)` matches `unitPrice` (within a cent) and that the workbook's own age rule gives the same % today.
 - `expiresAt` is less than 24 hours away.
 - `stockAsOf` is old, or a line asks for more than `available` in all warehouses together.
 - The request is not `reserved` any more.

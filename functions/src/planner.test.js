@@ -211,3 +211,13 @@ test("releasing a restricted request frees its own scope, and old requests count
   const legacy = planAction({ action: "cancel", request: old, actor: { isAdmin: true, email: "o" }, now: NOW, reservedDocs: { skitrab: { map: { a1: 2 } } } });
   assert.deepEqual(legacy.reserved.skitrab, {}); assert.deepEqual(legacy.byScope.skitrab.all, {});
 });
+
+// ---- previous-season rebate: the net price is the unit price, the rebate rides on the line
+test("a rebated item is priced at its net price and the line carries the list price and the rebate", () => {
+  const c = base(); c.priceDocs.skitrab.prices.a1 = { p: 412.34, b: 634.38, pct: 35, m: 659.94, mb: 1099.9 };
+  const l = planSubmit(c).request.lines[0];
+  assert.equal(l.unitPrice, 412.34); assert.equal(l.lineTotal, 824.68); assert.equal(l.priceTbd, false);
+  assert.equal(l.listPrice, 634.38); assert.equal(l.rebatePct, 35); assert.equal(l.rebateReason, "Previous season");
+  const plain = planSubmit(base()).request.lines[0];
+  assert.equal(plain.listPrice, null); assert.equal(plain.rebatePct, null); assert.equal(plain.rebateReason, "");
+});
