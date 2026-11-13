@@ -55,7 +55,12 @@ export function priceCell(entry, currency, unit) {
   // previous-season item: net price above, regular price crossed out and the rebate badge (the age itself is never shown)
   if (entry.pct && entry.b > entry.p) el.append(h("small", { class: "was" }, h("s", { text: money(entry.b, currency) + per }), h("span", { class: "badge b-rebate", text: `−${entry.pct} %` })));
   if (entry.est) el.append(h("span", { class: "badge b-est", title: t("est_tip"), text: t("est") }));
-  if (entry.m && entry.m > entry.p) el.append(h("small", { text: t("msrp") + " " + money(entry.m, currency) + per }));
+  if (entry.m && entry.m > entry.p) {
+    if (entry.mb && entry.mb > entry.m) {   // the suggested retail is itself reduced: old retail crossed out, new one after the retail rebate
+      const pct = Math.round((1 - entry.m / entry.mb) * 100);
+      el.append(h("small", { class: "msrp" }, t("msrp_now", { pct }) + " ", h("s", { text: money(entry.mb, currency) + per }), " " + money(entry.m, currency) + per));
+    } else el.append(h("small", { class: "msrp", text: t("msrp") + " " + money(entry.m, currency) + per }));
+  }
   return el;
 }
 
