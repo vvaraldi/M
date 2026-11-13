@@ -70,6 +70,26 @@ class Rebates(unittest.TestCase):
         self.assertIs(ex.latest_price_line([none_priced], [a, b], "DealerCAD", cur), b)    # barcode first, then the part number
         self.assertIs(ex.latest_price_line([a], [b], "DealerCAD", cur), a)
 
+    def test_part_number_lookup_takes_the_same_size_only(self):
+        # a 115 mm roll must never get the 85 mm price of the same part number (21108B)
+        def roll(row, size, usd):
+            return {"_row": row, "ToSeason": 50, "DealerUSD": usd, "Size": size}
+        r85, r100, r115 = roll(1, "85", 17.99), roll(2, "100", 19.99), roll(3, "115", None)
+        part_lines = [r85, r100, r115]
+        self.assertIsNone(ex.latest_price_line([r115], part_lines, "DealerUSD", 26, "115"))        # no 115 mm USD price: none, not 85 mm's
+        self.assertIs(ex.latest_price_line([], part_lines, "DealerUSD", 26, "100"), r100)
+        self.assertIs(ex.latest_price_line([], part_lines, "DealerUSD", 26, "85.0"), r85)          # 85.0 and 85 are the same size
+        self.assertIs(ex.latest_price_line([r115], part_lines, "DealerUSD", 26), r100)             # size None: no check (old behaviour)
+        na = {"_row": 4, "ToSeason": 50, "DealerUSD": 5.0, "Size": "N/A"}
+        self.assertIs(ex.latest_price_line([], [na, r85], "DealerUSD", 26, ""), na)                # no size and N/A are the same
+        self.assertEqual((ex.size_key(" 115 "), ex.size_key("N/A"), ex.size_key(None), ex.size_key("S")), ("115", "", "", "s"))
+
+    def test_exceptions_cover_part_number_and_every_sku_under_it(self):
+        by_ean = {"805A": [{"PartNo": "22048"}], "805B": [{"PartNo": "22048N"}, {"PartNo": "22048"}],
+                  "805C": [{"PartNo": "99999"}], "805D": [{"PartNo": "40265"}]}
+        self.assertEqual(ex.exception_skus({"22048", "805d"}, by_ean), {"805A", "805B", "805D"})   # part numbers and SKUs, any case
+        self.assertEqual(ex.exception_skus(set(), by_ean), set())
+
 
 if __name__ == "__main__":
     unittest.main()

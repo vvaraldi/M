@@ -52,6 +52,10 @@ the Catalogue). **The percentages live in one place only: the workbook** (Settin
 workbook's Stock sheet carries each item's age. To change a percentage: edit `tAgeRules`, open the Stock sheet (it refreshes), save, run `run-export.bat`, upload `stock.json`.
 - The export prices a **New** item aged 1 year or more from the item's **latest** Catalogue price (per price column, by barcode then part number), minus the brand's rebate:
   the *retail* % on the Retail price lists and the *shop* % on the Shop **and Export EUR** lists. Age 0, brands without rules and conditions outside the rule keep the normal logic.
+- **Exceptions:** items listed in the workbook's table `tAgeExceptions` (Settings, `Rebate` = No; a part number also covers every barcode the Catalogue lists under it) are never discounted:
+  they are priced at their latest Catalogue price with no rebate and no *Previous season* label. The report lists them.
+- **Size rule:** when a price is not found under the item's own barcode and is taken from the part number, only a line of the **same size** is accepted
+  (a 115 mm roll never gets the 85 mm price). With no same-size line the price is "on request" for that currency.
 - Shops see the net price large, the regular price crossed out, a `-25 %` badge and a **Previous season** label (FR *Saison précédente*, IT *Stagione precedente*),
   a *Previous season only* filter and a *Biggest rebate first* sort. **The age is never shown to shops** (and the age and last season stay in the export file, not in what is published).
   The suggested retail price shown next to a shop price is the retail price after the retail rebate.

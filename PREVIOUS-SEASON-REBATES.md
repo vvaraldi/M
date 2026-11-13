@@ -1,6 +1,7 @@
 # Previous-season rebates: what changed in the workbook, and what to build in the export and the portal
 
 Written 2026-11-11 for the Claude Code session that maintains this repository (`tools/export_stock.py`, `tools/run-export.bat`, the web pages in `docs/` and the functions in `functions/src`).
+Updated 2026-11-12: new exceptions table `tAgeExceptions` (items kept out of the rule), see §2 and §3.
 The workbook side is done and saved. The export and the web interface still have to be adapted: that is your part.
 
 Read with: `README.md` (how the portal works), `AUTOMATION-PLAYBOOK.md`, `REQUESTS-SCHEMA.md`, and `..\SKITRAB-WORKBOOK-REFERENCE.md` (outside the repo).
@@ -37,6 +38,12 @@ Other brands (VillaCampa) have no rule yet: no rebate.
   - "6 and more" is stored as `Age to` = 99.
   - A brand with no rows = no rebate. No matching age band = no rebate.
 - **Conditions the rule applies to**: column X under the header `Age rule conditions` (X5 downwards, defined name `lstAgeConditions`). Today: `New`, `Mounted & New`.
+- **Table `tAgeExceptions`** (columns Z:AC, header row 4): `PartNo or SKU` | `Description` | `Rebate` | `Note`.
+  - A row whose `Rebate` starts with N (`No`, case ignored) keeps the item out of the rule: no rebate, priced at its latest available price, whatever its age.
+  - The key is compared with the stock line's part number (`PartNo` in Stock moves) and with its SKU.
+  - A part number also covers every SKU the Catalogue lists under it. So a new code that keeps the same barcode is covered (22048 also covers 22048N, same EAN).
+  - Today 8 accessories: 22048, 42026, 22051, 22062, 36031 (same barcode as the 26-27 "N" code, identical for the consumer) and 40265, 40281, 22065 (accessories still valid).
+  - The owner decided these item by item on 2026-11-12. Every other aged item follows the rule.
 - **Current selling season**: C29, defined name `set_Season`, value `26-27` (season code = first two digits, 26). `portal-settings.json` repeats it as `currentSeasonCode`: the export should check that both agree and stop with a clear message if they don't.
 - The rebate reason list has a new value: **`Previous season`**.
 - The condition list now also has `Mounted & New` and `Mounted & Used`. A mounted pair is 2 stock lines (ski + binding) whose Stock moves note starts with `KIT A` / `KIT B`. At Eastman, `Old graphics` items were changed to `New` on 2026-11-11 (the age now carries that information). The value `Old graphics` is still in the list.
@@ -49,7 +56,7 @@ New columns at the right, after "Reserved for". Find them **by header text**: th
 | `Last season` | e.g. `23-24` (text); empty when the item is not in the Catalogue |
 | `Age (years)` | 0, 1, 2 … ; empty when unknown |
 | `Brand` | from the Catalogue (latest line of the SKU, else of the part number) |
-| `Retail rebate %` | fraction (0.4); empty when the condition is not in `lstAgeConditions` or the brand has no rule |
+| `Retail rebate %` | fraction (0.4); 0 for current items and for `tAgeExceptions` items; empty when the condition is not in `lstAgeConditions` or the brand has no rule |
 | `Shop rebate %` | fraction (0.35); same rule |
 | `Retail CAD (latest)` | base retail price in CAD (latest available) |
 | `Retail CAD net` | base × (1 − retail %), only for rule items |
@@ -75,6 +82,7 @@ The owner does not want the age itself on invoices: only "Previous season".
 1. **Read the rules** from the Settings sheet:
    - find the row holding `Brand`, `Age from`, `Age to`, `Retail %`, `Shop %` and read the rows below it until the first empty Brand;
    - read the `Age rule conditions` column the same way.
+   - read `tAgeExceptions` the same way: the header row holding `PartNo or SKU` and `Rebate`, rows below until the first empty key. Keep the rows whose `Rebate` starts with N. Add the SKUs of every Catalogue line whose `PartNo` is one of those keys, as the macro does.
    - `openpyxl` in read-only mode does not expose `ws.tables`, so locate the headers.
 2. **Read the new Stock columns** by header (see the table above), together with the existing ones.
 3. **Price the rule items** (condition in the rule conditions, age known, a rule row found for the brand and age):
@@ -82,6 +90,7 @@ The owner does not want the age itself on invoices: only "Previous season".
    - Pick the % by tier: `RETAIL_*` → retail %; `SHOP_*` → shop %; `EXPORT_EUR` → shop % (**TO CONFIRM**).
    - net = `cents(base × (1 − pct))`. Keep the `est` flag when the base price ends in .99.
    - Age 0 items in a rule condition are priced normally, with no rebate.
+   - **Exceptions** (`tAgeExceptions`, matched by SKU, or by part number through the Catalogue): priced like age 0 items, at the latest available price, no rebate, `previousSeason: false`. The Stock sheet already shows 0 % for them after a refresh, so an export that takes the % from the Stock sheet gets this for free. An export that recomputes from `tAgeRules` must apply the exceptions itself.
 4. **`pricedConditions`:**
    - Items whose condition is in the rule conditions get a price (so `Mounted & New` gets one too). Other conditions stay "price on request" as today.
    - **TO CONFIRM:** whether the owner wants the mounted pairs priced on the portal, or kept "on request" because they are sold as a ski + binding kit.
@@ -97,6 +106,7 @@ The owner does not want the age itself on invoices: only "Previous season".
 6. **Report (`output/report.txt`)**, add:
    - the number of items priced with a previous-season rebate, by brand and age band;
    - aged items whose brand has no rule;
+   - aged items kept out by `tAgeExceptions`;
    - aged items in a condition outside the rule (on request);
    - a warning if the new Stock columns are missing or all empty. That means the workbook was not opened and refreshed since the macro update: ask the owner to open it, open the Stock sheet, save, and run the export again.
 7. **`run-export.bat`:** no change needed beyond the reminder already printed (refresh the Stock sheet, save, close). Optionally print the rebate summary line from the report.
@@ -112,6 +122,7 @@ The owner does not want the age itself on invoices: only "Previous season".
 | Ortles Next 90 171 orange | 8057971064809 | Mounted & New | 1 | 969.95 → 678.97 (−30 %) | 484.98 → 363.73 (−25 %) |
 | Gara Aero tracksuit man L | 8056201708070 | New | 1 | 319.95 → 223.97 (−30 %) | 159.975 → 119.98 (−25 %) |
 | Maestro.2 171 (current) | 8057971068395 | New | 0 | 1,649.95, no rebate | 874.47, no rebate |
+| Endhook Attivo (22048, exception) | 8059830407574 | New | 2 | 16.95, no rebate | 9.32, no rebate |
 
 These are the export values, computed with `cents()` from the unrounded base: Neve shop base is 634.375, Ortles Next 484.975, Stelvio Rental 441.6725.
 The Stock sheet shows 223.96 for the tracksuit, because VBA `Round` uses banker's rounding on the exact half cent.
@@ -136,4 +147,4 @@ Shop base = DealerCAD of the item's latest Catalogue line. For the current Maest
 - Firestore rules: no change expected (prices stay in `prices/<TIER>__<brand>`).
 
 ## 5. Changing the % later
-The owner edits `tAgeRules` on the Settings sheet, opens the Stock sheet (refresh), saves, runs `run-export.bat` and uploads `stock.json` in Admin. Nothing in the repository should hold its own copy of the percentages.
+The owner edits `tAgeRules` (and `tAgeExceptions`) on the Settings sheet, opens the Stock sheet (refresh), saves, runs `run-export.bat` and uploads `stock.json` in Admin. Nothing in the repository should hold its own copy of the percentages or of the exceptions.

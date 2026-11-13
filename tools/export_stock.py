@@ -98,7 +98,7 @@ def read_catalogue(wb):
     ws = wb["Catalogue"]
     hdr_row, cols = find_header(ws, ["Ref", "EAN", "DealerCAD", "FromSeason", "ToSeason"])
     ix = {k: v[0] for k, v in cols.items()}
-    need = ["Active", "PartNo", "Brand", "Category", "Family", "Description", "EAN", "RetailCAD", "DealerCAD", "RetailUSD",
+    need = ["Active", "PartNo", "Brand", "Category", "Family", "Description", "Size", "EAN", "RetailCAD", "DealerCAD", "RetailUSD",
             "DealerUSD", "RetailEUR", "DealerEUR", "ExportEUR", "FromSeason", "ToSeason"]
     missing = [h for h in need if h not in ix]
     if missing:
@@ -134,17 +134,60 @@ def season_value(to_season, current):
     return current if to_season == OPEN_SEASON else to_season
 
 
-def latest_price_line(lines_by_sku, lines_by_part, col, current):
+def size_key(s):
+    """Sizes compared as text without case, spaces or a trailing .0; empty and 'N/A' are the same 'no size'."""
+    s = clean(s).lower().replace(" ", "")
+    if s in ("", "n/a", "na", "-"):
+        return ""
+    return s[:-2] if s.endswith(".0") and s[:-2].isdigit() else s
+
+
+def latest_price_line(lines_by_sku, lines_by_part, col, current, size=None):
     """The Catalogue line that holds the LATEST available price for one price column, or None.
 
     Per price column: among the lines with an active ToSeason and a price > 0, the highest season wins
     (on a tie the line lower in the sheet, i.e. the higher Ref, as the workbook's Stock refresh does).
-    Looked up by barcode first, then by part number."""
-    for lines in (lines_by_sku, lines_by_part):
-        cands = [l for l in lines if num(l.get("ToSeason")) is not None and (num(l.get(col)) or 0) > 0]
+    Looked up by barcode first, then by part number. A part number is shared by every size of a model
+    (rolls, skis): the second lookup only takes lines of the SAME size as the item, otherwise a 115 mm roll
+    would get the 85 mm price (`size` = the item's size; None skips the check)."""
+    for lines, by_part in ((lines_by_sku, False), (lines_by_part, True)):
+        cands = [l for l in lines if num(l.get("ToSeason")) is not None and (num(l.get(col)) or 0) > 0
+                 and not (by_part and size is not None and size_key(l.get("Size")) != size_key(size))]
         if cands:
             return max(cands, key=lambda l: (season_value(l["ToSeason"], current), l["_row"]))
     return None
+
+
+def read_rebate_exceptions(wb):
+    """Settings table tAgeExceptions: (set of part numbers / SKUs with Rebate = No, [(key, description, note)]).
+
+    The header row holds 'PartNo or SKU' and 'Rebate'; rows below it up to the first empty key. Only rows whose
+    Rebate starts with N (No) keep the item out of the age rule. Keys are compared as text, case-insensitive."""
+    ws = wb["Settings"]
+    try:
+        hdr_row, cols = find_header(ws, ["PartNo or SKU", "Rebate"], max_scan=80)
+    except SystemExit:
+        return set(), []
+    c_key, c_reb = cols["PartNo or SKU"][0], cols["Rebate"][0]
+    c_desc = next((i for i in cols.get("Description", []) if i > c_key), None)
+    keys, rows = set(), []
+    for row in ws.iter_rows(min_row=hdr_row + 1, values_only=True):
+        key = clean(row[c_key]) if len(row) > c_key else ""
+        if not key:
+            break
+        if clean(row[c_reb]).lower().startswith("n"):
+            keys.add(key.lower())
+            rows.append((key, clean(row[c_desc]) if c_desc is not None and len(row) > c_desc else ""))
+    return keys, rows
+
+
+def exception_skus(keys, by_ean):
+    """Every SKU kept out of the rule: a key matches the SKU itself, or the part number of Catalogue lines (all their SKUs)."""
+    skus = set()
+    for ean, lines in by_ean.items():
+        if ean.lower() in keys or any(clean(l.get("PartNo")).lower() in keys for l in lines):
+            skus.add(ean)
+    return skus
 
 
 def as_fraction(v):
@@ -370,6 +413,8 @@ def main():
     by_part = index_by_part(catalogue)
     move_codes = read_move_codes(wb)
     rules, rule_conditions = read_rebate_rules(wb)
+    exc_keys, exc_rows = read_rebate_exceptions(wb)
+    exc_skus = exception_skus(exc_keys, catalogue)
     wb_season = read_workbook_season(wb)
     wb.close()
 
@@ -451,31 +496,38 @@ def main():
             continue
         # ---- previous-season rebate: a rule item is New (or another condition listed in the workbook's rule conditions),
         # at least 1 year old, and its brand has a rebate for that age. It is priced from the LATEST price in the Catalogue.
-        retail_pct = rebate_for(rules, brand, age, "retail") if age is not None and age >= 1 and cond in rule_set else None
-        shop_pct = rebate_for(rules, brand, age, "shop") if age is not None and age >= 1 and cond in rule_set else None
+        # tAgeExceptions (Rebate = No): kept out of the rule, priced at the latest available price like an age-0 item, no rebate
+        excepted = age is not None and age >= 1 and cond in rule_set and (sku.lower() in exc_keys or sku in exc_skus or (code or "").lower() in exc_keys)
+        retail_pct = rebate_for(rules, brand, age, "retail") if age is not None and age >= 1 and cond in rule_set and not excepted else None
+        shop_pct = rebate_for(rules, brand, age, "shop") if age is not None and age >= 1 and cond in rule_set and not excepted else None
         if age is not None and age >= 1:
-            if cond in rule_set and not ((retail_pct or 0) > 0 or (shop_pct or 0) > 0):
+            if excepted:
+                rep["aged_exception"].append(f"{label} age {age}")
+            elif cond in rule_set and not ((retail_pct or 0) > 0 or (shop_pct or 0) > 0):
                 rep["aged_no_rule"].append(f"{label} age {age}")
             elif cond not in rule_set:
                 rep["aged_outside_rule"].append(f"{label} age {age}")
-        if (retail_pct or 0) > 0 or (shop_pct or 0) > 0:
+        if (retail_pct or 0) > 0 or (shop_pct or 0) > 0 or excepted:
             part = code if code_src == "catalogue" else ""
             part_lines = by_part.get(part, []) if part else []
             got = 0
             for tier in settings["priceTiers"]:
                 pcol, mcol = TIER_COLUMNS[tier]
-                line = latest_price_line(all_lines, part_lines, pcol, season)
+                # the part-number lookup only accepts lines of the item's own size (the barcode lookup needs no check)
+                line = latest_price_line(all_lines, part_lines, pcol, season, m["size"])
                 if line is None:
                     continue
-                if tier == "SHOP_CAD" and not any(line is l for l in all_lines):
-                    rep["price_from_part_number"].append(f'{label}: base price taken from another line with part number {part} (size {line.get("Size")})')
-                msrp_line = latest_price_line(all_lines, part_lines, mcol, season) if mcol else None
+                if not any(line is l for l in all_lines):
+                    rep["price_from_part_number"].append(f'{label}: {tier} base price taken from another line with part number {part} (same size {line.get("Size")})')
+                msrp_line = latest_price_line(all_lines, part_lines, mcol, season, m["size"]) if mcol else None
                 prices[tier][iid] = rebate_entry(num(line[pcol]), (retail_pct if tier.startswith("RETAIL") else shop_pct) or 0.0,
                                                  num(msrp_line[mcol]) if msrp_line else None, retail_pct or 0.0)
                 got += 1
             if got == 0:
                 rep["no_price_for_season"].append(label)
                 continue
+            if excepted:
+                continue   # latest price, no rebate, not flagged as previous season
             item["previousSeason"] = True
             band = next(r for r in rules[brand_key(brand)] if r["ageFrom"] <= age <= r["ageTo"])
             rebate_count[(brand, f'{band["ageFrom"]}' if band["ageFrom"] == band["ageTo"] else f'{band["ageFrom"]}-{band["ageTo"]}' if band["ageTo"] < 99 else f'{band["ageFrom"]}+')] += 1
@@ -576,8 +628,11 @@ def main():
           " open it, open the Stock sheet, save, and export again.")
     if not rules:
         P("  WARNING: no rule found in the Settings sheet (table tAgeRules): no previous-season rebate is applied.")
+    P(f"  exceptions (tAgeExceptions, Rebate = No): {len(exc_rows)} listed ({', '.join(k for k, _ in exc_rows) or 'none'}); "
+      f"{len(rep['aged_exception'])} aged items kept at their latest price")
     P("")
     titles = {
+        "aged_exception": "AGED ITEMS KEPT OUT OF THE RULE BY tAgeExceptions (latest price, no rebate)",
         "no_catalogue_match": "NO CATALOGUE MATCH (code starts with P:), no price: fix in the workbook",
         "no_price_for_season": f"NO PRICE FOR SEASON {settings['currentSeasonLabel']} (shown as 'price on request')",
         "price_from_older_season": "PRICE TAKEN FROM AN OLDER SEASON (fallbackToLastKnownPrice is on)",
