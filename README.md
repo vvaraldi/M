@@ -132,8 +132,8 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 - Run [`tools/run-pictures.bat`](tools/run-pictures.bat) (after `run-export.bat`). `tools/extract_pictures.py` takes each part number in stock from the library; for those the library lacks it searches the Ski Trab catalogues
   (2026 first, then back to 2020), takes the nearest product picture on the page, saves it into the library (tagged `(catalogue)`) and writes `tools/output/pictures/`:
   `contact-sheet.html` (check every match by eye), `pictures.json` (what the Admin publishes), thumbnails and large pictures.
-  **`pictures.json` holds real pictures only** (website, photographer, your own files): the small catalogue pictures stay in the library as a fallback and are left out until you replace them
-  (`python extract_pictures.py --with-catalogue` includes them). A product without a published picture simply shows no tile.
+  **`pictures.json` holds every picture**, including the small ones taken from catalogues (owner's choice, 2026-11-14). `python extract_pictures.py --real-only` leaves the catalogue ones out
+  (website, photographer and your own files only). A product without a published picture simply shows no tile.
 - `tools/picture-overrides.json`: `{"skip": true}` = never a picture for that part number (the contact sheet lists skipped ones that the library could fill),
   `{"file": "C:/path/photo.jpg"}` = a picture of your own, or a catalogue picture (`pdf`, `page`, `xref`; `xrefs` puts several side by side) used when the library has nothing.
 - Publish: Admin → **Pictures** → *Choose pictures.json* → *Publish the pictures* (adds or replaces; tick *Also remove the pictures that are not in this file* to make the file the whole truth).

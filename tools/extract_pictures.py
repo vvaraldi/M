@@ -217,7 +217,7 @@ def main():
     ap.add_argument("--overrides", default=os.path.join(HERE, "picture-overrides.json"))
     ap.add_argument("--library", default=LIBRARY)
     ap.add_argument("--no-library-export", action="store_true", help="do not save catalogue pictures into the library folders")
-    ap.add_argument("--with-catalogue", action="store_true", help="also put the small pictures taken from catalogues into pictures.json (default: real pictures only)")
+    ap.add_argument("--real-only", action="store_true", help="leave the small pictures taken from catalogues out of pictures.json (default: they are included)")
     args = ap.parse_args()
 
     stock = json.load(open(args.stock, encoding="utf-8"))
@@ -359,11 +359,11 @@ def main():
     json.dump(results, open(os.path.join(args.out, "matches.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
     # ---- the package the Admin "Pictures" tab publishes: { schema: 1, brands: { <brandKey>: { <code>: { t: <base64 thumb>, l: <base64 large> } } } }
-    # Only real pictures (website, photographer, your own files) go to shops by default; the small catalogue pictures only with --with-catalogue.
+    # Every picture goes to shops, including the small ones taken from catalogues; --real-only keeps those out (website, photographer and your own files only).
     def from_catalogue(code):
         e = results[code]
         return e["status"] == "matched" or e.get("fromCatalogue") or (e["status"] == "override" and "file" not in overrides.get(code, {}))
-    publish = sorted(c for c in keep if args.with_catalogue or not from_catalogue(c))
+    publish = sorted(c for c in keep if not (args.real_only and from_catalogue(c)))
     pkg = {"schema": 1, "brands": {}}
     for code in publish:
         bk = re.sub(r"[^a-z0-9]+", "", by_code[code][0]["brand"].lower())   # same rule as brand_key() in export_stock.py
@@ -374,7 +374,7 @@ def main():
         json.dump(pkg, f)
     n_pub = sum(len(v) for v in pkg["brands"].values())
     print(f"pictures.json: {n_pub} pictures, {os.path.getsize(os.path.join(args.out, 'pictures.json')) / 1e6:.1f} MB"
-          + ("" if args.with_catalogue else f" (real pictures only; {len(keep) - n_pub} taken from catalogues are left out: use --with-catalogue to include them)"))
+          + (f" (real pictures only; {len(keep) - n_pub} taken from catalogues are left out)" if args.real_only else ""))
 
     # ---- contact sheet (self-contained)
     def b64(b):
