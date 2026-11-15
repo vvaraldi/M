@@ -217,6 +217,7 @@ def main():
     ap.add_argument("--overrides", default=os.path.join(HERE, "picture-overrides.json"))
     ap.add_argument("--library", default=LIBRARY)
     ap.add_argument("--no-library-export", action="store_true", help="do not save catalogue pictures into the library folders")
+    ap.add_argument("--with-catalogue", action="store_true", help="also put the small pictures taken from catalogues into pictures.json (default: real pictures only)")
     args = ap.parse_args()
 
     stock = json.load(open(args.stock, encoding="utf-8"))
@@ -358,15 +359,22 @@ def main():
     json.dump(results, open(os.path.join(args.out, "matches.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
     # ---- the package the Admin "Pictures" tab publishes: { schema: 1, brands: { <brandKey>: { <code>: { t: <base64 thumb>, l: <base64 large> } } } }
+    # Only real pictures (website, photographer, your own files) go to shops by default; the small catalogue pictures only with --with-catalogue.
+    def from_catalogue(code):
+        e = results[code]
+        return e["status"] == "matched" or e.get("fromCatalogue") or (e["status"] == "override" and "file" not in overrides.get(code, {}))
+    publish = sorted(c for c in keep if args.with_catalogue or not from_catalogue(c))
     pkg = {"schema": 1, "brands": {}}
-    for code in keep:
+    for code in publish:
         bk = re.sub(r"[^a-z0-9]+", "", by_code[code][0]["brand"].lower())   # same rule as brand_key() in export_stock.py
         t = base64.b64encode(open(os.path.join(args.out, "thumb", code + ".jpg"), "rb").read()).decode()
         l = base64.b64encode(open(os.path.join(args.out, "large", code + ".jpg"), "rb").read()).decode()
         pkg["brands"].setdefault(bk, {})[code] = {"t": t, "l": l}
     with open(os.path.join(args.out, "pictures.json"), "w", encoding="utf-8") as f:
         json.dump(pkg, f)
-    print(f"pictures.json: {sum(len(v) for v in pkg['brands'].values())} pictures, {os.path.getsize(os.path.join(args.out, 'pictures.json')) / 1e6:.1f} MB")
+    n_pub = sum(len(v) for v in pkg["brands"].values())
+    print(f"pictures.json: {n_pub} pictures, {os.path.getsize(os.path.join(args.out, 'pictures.json')) / 1e6:.1f} MB"
+          + ("" if args.with_catalogue else f" (real pictures only; {len(keep) - n_pub} taken from catalogues are left out: use --with-catalogue to include them)"))
 
     # ---- contact sheet (self-contained)
     def b64(b):
