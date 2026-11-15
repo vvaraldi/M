@@ -54,6 +54,7 @@ workbook's Stock sheet carries each item's age. To change a percentage: edit `tA
   the *retail* % on the Retail price lists and the *shop* % on the Shop **and Export EUR** lists. Age 0, brands without rules and conditions outside the rule keep the normal logic.
 - **Exceptions:** items listed in the workbook's table `tAgeExceptions` (Settings, `Rebate` = No; a part number also covers every barcode the Catalogue lists under it) are never discounted:
   they are priced at their latest Catalogue price with no rebate and no *Previous season* label. The report lists them.
+- **Items without a barcode** (`P:PartNo|Size|Color` in the Stock sheet) are matched to the Catalogue line with the same value in its `SKU` column; with no such line they stay "on request" and the report lists them.
 - **Size rule:** when a price is not found under the item's own barcode and is taken from the part number, only a line of the **same size** is accepted
   (a 115 mm roll never gets the 85 mm price). With no same-size line the price is "on request" for that currency.
 - Shops see the net price large, the regular price crossed out, a `-25 %` badge and a **Previous season** label (FR *Saison précédente*, IT *Stagione precedente*),
@@ -120,6 +121,23 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 - **Catalogs (shared by link):** shops open a long unguessable download link, published only in the list for their brand and region. Someone given that link by a shop could open it.
   To withdraw a link, edit the document and choose the file again: the old file is deleted and the old link stops working.
 - Switching a document between private and link needs the file chosen again (otherwise the old link would keep working).
+
+### Product pictures
+- One picture per **part number** (the item code): every size of a model shares it. Shops see a small picture on the product card and tap it to enlarge;
+  a **Show pictures** switch in the stock toolbar lets each shop hide them (remembered in that browser; cards without a picture look as before).
+- **The picture library is a folder on your drive** (and the master): `Sharable info\Pictures\<Brand>\<season>\<part number> <description>.jpg`, for example `Pictures\Skitrab\2026-27\13214 GARA SPEED.jpg`.
+  Only the start of the file name matters (`13214`, `40237R`; the website's own `13214_0.JPG` works too). To change a picture, drop a better file in with the same part number and run `run-pictures.bat`.
+  For one part number a real picture beats one the script took from a catalogue (`... (catalogue).jpg`), then the newest season folder wins, then the larger file. The folder is easy to zip and share.
+- Fill the library from a folder of downloaded pictures: `python tools\import_pictures.py --src "<folder>" --brand Skitrab --season 2026-27 [--only-new]` (files get the description from the workbook's Catalogue; nothing is overwritten).
+- Run [`tools/run-pictures.bat`](tools/run-pictures.bat) (after `run-export.bat`). `tools/extract_pictures.py` takes each part number in stock from the library; for those the library lacks it searches the Ski Trab catalogues
+  (2026 first, then back to 2020), takes the nearest product picture on the page, saves it into the library (tagged `(catalogue)`) and writes `tools/output/pictures/`:
+  `contact-sheet.html` (check every match by eye), `pictures.json` (what the Admin publishes), thumbnails and large pictures.
+- `tools/picture-overrides.json`: `{"skip": true}` = never a picture for that part number (the contact sheet lists skipped ones that the library could fill),
+  `{"file": "C:/path/photo.jpg"}` = a picture of your own, or a catalogue picture (`pdf`, `page`, `xref`; `xrefs` puts several side by side) used when the library has nothing.
+- Publish: Admin → **Pictures** → *Choose pictures.json* → *Publish the pictures* (adds or replaces; tick *Also remove the pictures that are not in this file* to make the file the whole truth).
+  The same tab lists every part number in stock: *Add a picture…* / *Replace…* resizes a photo in your browser, *Remove* deletes one.
+- Storage: Firestore, gated by brand like the covers (`pictures/<brand>` manifest, `pictureThumbs/<brand>__<n>` thumbnails read with the stock, `pictureLarge/<brand>__<code>` read only when a shop opens a picture).
+  Pictures are not in the public repository. About 1.6 MB for 72 pictures. Deploying the Firestore rules is required (see below); no function changes.
 
 ### If emails do not arrive
 - Admin → **Requests** → **Send me a test email** tells you why. A failed request also shows the reason on its **Emails** line, ending with the

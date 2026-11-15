@@ -24,7 +24,7 @@ const S = {
     all_brands: "All brands", no_brands: "No brand is enabled for your account yet. Please contact M.",
     none_published: "No stock has been published yet. Please check back soon.", load_err: "The stock could not be loaded. Please reload the page.",
     h_size: "Size", h_cond: "Condition", h_av: "Available", h_price: "Your price",
-    price_on_request: "Price on request", est: "est.", est_tip: "Estimated price, not final", msrp: "Suggested retail", msrp_now: "Suggested retail now (after −{pct} %)",
+    price_on_request: "Price on request", est: "est.", est_tip: "Estimated price, not final", msrp: "Suggested retail", msrp_now: "Suggested retail (−{pct} %)",
     contact: "To order or ask a question, contact M:", contact_link: "email M",
     g_ski: "Skis", g_bind: "Bindings", g_skin: "Skins", g_pole: "Poles", g_helmet: "Helmets & goggles", g_pack: "Packs & bottles", g_cloth: "Clothing", g_acc: "Accessories", g_other: "Other",
     cat_Ski: "Skis", cat_Binding: "Bindings", cat_Skin: "Skins", cat_Pole: "Poles", cat_Helmet: "Helmets & goggles", cat_BackPack: "Packs & bottles",
@@ -55,6 +55,7 @@ const S = {
     d_empty: "No document is available for your brands yet. Please check back soon.", d_err: "The documents could not be loaded. Please reload the page.",
     d_preparing: "Preparing…", d_dl_err: "The file could not be downloaded. Please try again.",
     prev_season: "Previous season", prev_only: "Previous season only", sort_label: "Sort", sort_default: "Default order", sort_rebate: "Biggest rebate first",
+    pics_show: "Show pictures", pic_enlarge: "Enlarge the picture of {name}", pic_close: "Close", pic_note: "Illustrative picture: colours and graphics may vary",
     prev_note: "Previous-season items are older collections sold at a reduced price; the crossed-out price is the regular price."
   },
   fr: {
@@ -77,7 +78,7 @@ const S = {
     all_brands: "Toutes les marques", no_brands: "Aucune marque n'est encore activée pour votre compte. Veuillez communiquer avec M.",
     none_published: "Aucun stock n'a encore été publié. Revenez bientôt.", load_err: "Le stock n'a pas pu être chargé. Veuillez recharger la page.",
     h_size: "Taille", h_cond: "État", h_av: "Disponible", h_price: "Votre prix",
-    price_on_request: "Prix sur demande", est: "est.", est_tip: "Prix estimé, non définitif", msrp: "Prix de détail suggéré", msrp_now: "Prix de détail suggéré maintenant (après −{pct} %)",
+    price_on_request: "Prix sur demande", est: "est.", est_tip: "Prix estimé, non définitif", msrp: "Prix de détail suggéré", msrp_now: "Prix de détail suggéré (−{pct} %)",
     contact: "Pour commander ou poser une question, communiquez avec M :", contact_link: "écrire à M",
     g_ski: "Skis", g_bind: "Fixations", g_skin: "Peaux", g_pole: "Bâtons", g_helmet: "Casques et lunettes", g_pack: "Sacs et gourdes", g_cloth: "Vêtements", g_acc: "Accessoires", g_other: "Autres",
     cat_Ski: "Skis", cat_Binding: "Fixations", cat_Skin: "Peaux", cat_Pole: "Bâtons", cat_Helmet: "Casques et lunettes", cat_BackPack: "Sacs et gourdes",
@@ -108,6 +109,7 @@ const S = {
     d_empty: "Aucun document n'est encore disponible pour vos marques. Revenez bientôt.", d_err: "Les documents n'ont pas pu être chargés. Veuillez recharger la page.",
     d_preparing: "Préparation…", d_dl_err: "Le fichier n'a pas pu être téléchargé. Veuillez réessayer.",
     prev_season: "Saison précédente", prev_only: "Saison précédente seulement", sort_label: "Trier", sort_default: "Ordre par défaut", sort_rebate: "Plus grand rabais d'abord",
+    pics_show: "Afficher les images", pic_enlarge: "Agrandir l'image de {name}", pic_close: "Fermer", pic_note: "Image à titre indicatif : les couleurs et les graphismes peuvent varier",
     prev_note: "Les articles de saison précédente sont des collections plus anciennes vendues à prix réduit; le prix barré est le prix régulier."
   },
   it: {
@@ -130,7 +132,7 @@ const S = {
     all_brands: "Tutte le marche", no_brands: "Nessuna marca è ancora abilitata per il tuo account. Contatta M.",
     none_published: "Non è ancora stata pubblicata alcuna disponibilità. Riprova presto.", load_err: "Impossibile caricare la disponibilità. Ricarica la pagina.",
     h_size: "Misura", h_cond: "Condizione", h_av: "Disponibile", h_price: "Il tuo prezzo",
-    price_on_request: "Prezzo su richiesta", est: "stim.", est_tip: "Prezzo stimato, non definitivo", msrp: "Prezzo al pubblico suggerito", msrp_now: "Prezzo al pubblico suggerito ora (dopo −{pct} %)",
+    price_on_request: "Prezzo su richiesta", est: "stim.", est_tip: "Prezzo stimato, non definitivo", msrp: "Prezzo al pubblico suggerito", msrp_now: "Prezzo al pubblico suggerito (−{pct} %)",
     contact: "Per ordinare o fare domande, contatta M:", contact_link: "scrivi a M",
     g_ski: "Sci", g_bind: "Attacchi", g_skin: "Pelli", g_pole: "Bastoncini", g_helmet: "Caschi e maschere", g_pack: "Zaini e borracce", g_cloth: "Abbigliamento", g_acc: "Accessori", g_other: "Altro",
     cat_Ski: "Sci", cat_Binding: "Attacchi", cat_Skin: "Pelli", cat_Pole: "Bastoncini", cat_Helmet: "Caschi e maschere", cat_BackPack: "Zaini e borracce",
@@ -161,6 +163,7 @@ const S = {
     d_empty: "Nessun documento è ancora disponibile per le tue marche. Riprova presto.", d_err: "Impossibile caricare i documenti. Ricarica la pagina.",
     d_preparing: "Preparazione…", d_dl_err: "Impossibile scaricare il file. Riprova.",
     prev_season: "Stagione precedente", prev_only: "Solo stagione precedente", sort_label: "Ordina", sort_default: "Ordine predefinito", sort_rebate: "Maggiore sconto prima",
+    pics_show: "Mostra le immagini", pic_enlarge: "Ingrandisci l'immagine di {name}", pic_close: "Chiudi", pic_note: "Immagine indicativa: colori e grafiche possono variare",
     prev_note: "Gli articoli della stagione precedente sono collezioni meno recenti in vendita a prezzo ridotto; il prezzo barrato è il prezzo di listino."
   }
 };

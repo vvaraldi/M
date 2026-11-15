@@ -1,0 +1,19 @@
+{
+  "33014": {"skip": true},
+  "36037": {"skip": true},
+  "36025": {"skip": true},
+  "36031": {"skip": true},
+  "36031N": {"skip": true},
+  "22058": {"skip": true},
+  "22059": {"skip": true},
+  "22069": {"skip": true},
+  "22020": {"pdf": "CATALOGUE_ALP_2026.pdf", "page": 35, "xref": 826},
+  "40297": {"pdf": "catalogo_skitrab_2024.pdf", "page": 26, "xrefs": [877, 885]},
+  "40320": {"pdf": "CATALOGUE_ALP_2026.pdf", "page": 27, "xrefs": [473, 481]},
+  "21104": {"pdf": "catalogo_skitrab_2024.pdf", "page": 33, "xref": 1219},
+  "40283": {"pdf": "CATALOGUE_ALP_2026.pdf", "page": 31, "xref": 621},
+  "40295": {"pdf": "CATALOGUE_ALP_2026.pdf", "page": 31, "xrefs": [630, 626]},
+  "22065": {"skip": true},
+  "40328B": {"pdf": "CATALOGUE_ALP_2026.pdf", "page": 32, "xrefs": [707, 715]},
+  "40328R": {"pdf": "CATALOGUE_ALP_2026.pdf", "page": 32, "xrefs": [707, 715]}
+}

@@ -98,7 +98,7 @@ def read_catalogue(wb):
     ws = wb["Catalogue"]
     hdr_row, cols = find_header(ws, ["Ref", "EAN", "DealerCAD", "FromSeason", "ToSeason"])
     ix = {k: v[0] for k, v in cols.items()}
-    need = ["Active", "PartNo", "Brand", "Category", "Family", "Description", "Size", "EAN", "RetailCAD", "DealerCAD", "RetailUSD",
+    need = ["Active", "PartNo", "Brand", "Category", "Family", "Description", "Size", "EAN", "SKU", "RetailCAD", "DealerCAD", "RetailUSD",
             "DealerUSD", "RetailEUR", "DealerEUR", "ExportEUR", "FromSeason", "ToSeason"]
     missing = [h for h in need if h not in ix]
     if missing:
@@ -107,7 +107,8 @@ def read_catalogue(wb):
     for n, row in enumerate(ws.iter_rows(min_row=hdr_row + 1, values_only=True)):
         if row[ix["Ref"]] is None:
             continue
-        ean = clean(row[ix["EAN"]])
+        # key = the barcode, else the workbook's SKU column ("P:PartNo|Size|Color" for items without a barcode, as in the Stock sheet)
+        ean = clean(row[ix["EAN"]]) or clean(row[ix["SKU"]])
         if not ean:
             continue
         rec = {k: row[ix[k]] for k in need}
@@ -491,7 +492,7 @@ def main():
                                            ", ".join(f"{k} {v:g}" for k, v in m["locations"].items()))
 
         label = f'{m["description"]} {m["size"]}'.strip() + f" [{cond}] ({sku})"
-        if sku.startswith("P:"):
+        if sku.startswith("P:") and not all_lines:   # no barcode and no Catalogue line with that P: key
             rep["no_catalogue_match"].append(label)
             continue
         # ---- previous-season rebate: a rule item is New (or another condition listed in the workbook's rule conditions),

@@ -89,7 +89,8 @@ export function qtyControl(item, eff, cart, onChange) {
 
 /**
  * Render the grouped product cards into `container`.
- * ctx = { prices:{id:{p,m,est}}, currency, showBrand, reserved:{id:qty}, cart:null|{qty,set}, onCartChange }
+ * ctx = { prices:{id:{p,m,est}}, currency, showBrand, reserved:{id:qty}, cart:null|{qty,set}, onCartChange,
+ *         pictures:{code:dataUrl}, showPictures:boolean, onPicture({code, brandKey, title, thumb}) }
  */
 export function renderStock(container, items, ctx) {
   container.replaceChildren();
@@ -103,10 +104,19 @@ export function renderStock(container, items, ctx) {
   for (const g of groups.values()) {
     g.rows.sort((a, b) => natural(a.size, b.size) || natural(a.color, b.color) || natural(a.condition, b.condition));
     const meta = [ctx.showBrand ? g.brand : "", categoryLabel(g.category), g.family].filter(Boolean).join(" · ");
+    const titleBlock = [h("h3", { class: "ptitle", text: g.description }), h("div", { class: "pmeta", text: meta })];
+    // a picture belongs to a part number: the first size of the model that has one shows it (only when the shop has pictures switched on)
+    const picRow = ctx.showPictures && ctx.pictures ? g.rows.find((r) => r.code && ctx.pictures[r.code]) : null;
+    let head = titleBlock;
+    if (picRow) {
+      const thumb = h("button", { class: "thumb", type: "button", "aria-label": t("pic_enlarge", { name: g.description }) },
+        h("img", { alt: "", loading: "lazy", src: ctx.pictures[picRow.code] }), h("span", { class: "zoom", "aria-hidden": "true", text: "+" }));
+      thumb.addEventListener("click", () => ctx.onPicture && ctx.onPicture({ code: picRow.code, brandKey: picRow.brandKey, title: g.description, thumb: ctx.pictures[picRow.code] }));
+      head = [h("div", { class: "phead" }, thumb, h("div", { class: "ptext" }, ...titleBlock))];
+    }
     const card = h("article", { class: "product" },
       h("div", { class: "pbody" },
-        h("h3", { class: "ptitle", text: g.description }),
-        h("div", { class: "pmeta", text: meta }),
+        ...head,
         h("div", { class: "vrow vhead" + (cart ? " has-qty" : ""), "aria-hidden": "true" },
           h("span", { text: t("h_size") }), h("span", { text: t("h_cond") }), h("span", { text: t("h_av") }), h("span", { text: t("h_price") }), cart ? h("span", { text: t("qty") }) : null),
         g.rows.map((i) => {

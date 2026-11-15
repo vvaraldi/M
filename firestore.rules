@@ -122,6 +122,22 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Product pictures, one set per brand (see docs/assets/js/pictures.js): a manifest pictures/<brand>, thumbnail documents
+    // pictureThumbs/<brand>__<n> and one large picture per part number pictureLarge/<brand>__<code>.
+    // Readable only by users of that brand; written only by the owner.
+    match /pictures/{docId} {
+      allow read: if isAdmin() || (isInvited() && docId.matches('[a-z0-9]+') && docId in myBrands());
+      allow write: if isAdmin();
+    }
+    match /pictureThumbs/{docId} {
+      allow read: if isAdmin() || (isInvited() && docId.matches('[a-z0-9]+__[0-9]+') && docId.split('__')[0] in myBrands());
+      allow write: if isAdmin();
+    }
+    match /pictureLarge/{docId} {
+      allow read: if isAdmin() || (isInvited() && docId.matches('[a-z0-9]+__[A-Za-z0-9]+') && docId.split('__')[0] in myBrands());
+      allow write: if isAdmin();
+    }
+
     // Who downloaded which private document, and when (written by the getDocument function, read by the owner only).
     match /downloads/{id} {
       allow read: if isAdmin();

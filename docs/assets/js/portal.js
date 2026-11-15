@@ -11,13 +11,14 @@ import { initCart, cart, count as cartCount, entries as cartEntries, onCartChang
 import { renderCartView, renderHistory } from "./requests.js";
 import { renderLibrary } from "./library-view.js";
 import { scopeOf, itemsDocId, reservedDocId } from "./stockscope.js";
+import { loadThumbs, loadLarge } from "./pictures.js";
 
 const $ = (id) => document.getElementById(id);
 const VIEWS = ["loading", "signin", "sent", "confirm", "denied", "app"];
 const show = (name) => VIEWS.forEach((v) => { $("view-" + v).hidden = v !== name; });
 const ROUTES = ["stock", "request", "history", "documents"];
 
-let profile = null, shop = null, meta = null, items = [], prices = {}, reserved = {}, brands = [];
+let profile = null, shop = null, meta = null, items = [], prices = {}, reserved = {}, brands = [], pictures = {};
 let pendingError = null, lastEmail = "", stockView = null, route = "stock", firstRender = true;
 
 // ------------------------------------------------------------------ language
@@ -96,6 +97,7 @@ document.querySelectorAll("[data-pills]").forEach((p) => p.addEventListener("cli
 async function fetchData() {
   const keys = (Array.isArray(profile.brands) ? profile.brands : []).filter((k) => /^[a-z0-9]+$/.test(k));
   const scope = scopeOf(profile);   // "all", or limited to one warehouse by the owner: the shop only reads the documents of its own scope
+  const picturesP = loadThumbs({ db, doc, getDoc }, keys);   // never fails: a shop without pictures simply sees none
   const [shopSnap, metaSnap, ...rest] = await Promise.all([
     getDoc(doc(db, "shops", profile.shopId)),
     getDoc(doc(db, "stock", "meta")),
@@ -117,6 +119,7 @@ async function fetchData() {
     if (reservedSnaps[i].exists()) Object.assign(reserved, reservedSnaps[i].data().map || {});
   });
   brands.sort((a, b) => a.name.localeCompare(b.name));
+  pictures = (await picturesP).byCode;
   reconcile(items, reserved);   // trim the cart to what is still available
 }
 
@@ -219,8 +222,8 @@ function renderApp() {
   };
 
   if (route === "stock") {
-    if (!stockView) stockView = createStockView($("stock-root"), { cart, onCartChange: updateCartBar });
-    stockView.setData({ items, prices, reserved, brands, currency: cur }, firstRender);
+    if (!stockView) stockView = createStockView($("stock-root"), { cart, onCartChange: updateCartBar, loadLarge: (bk, code) => loadLarge({ db, doc, getDoc }, bk, code) });
+    stockView.setData({ items, prices, reserved, brands, currency: cur, pictures }, firstRender);
     firstRender = false;
     const contact = $("contact");
     contact.replaceChildren();

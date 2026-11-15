@@ -10,6 +10,7 @@ import { ADMIN_EMAIL } from "./firebase-config.js";
 import { h } from "./render.js";
 import { setLang, dateLabel, money } from "./i18n.js";
 import { createStockView } from "./stockview.js";
+import { THUMB_FIT, LARGE_FIT, MAX_THUMB_CHARS, MAX_LARGE_CHARS, fitSize, validatePackage, planBrand, planOps, batchOps, loadThumbs, loadLarge, thumbDocId, codeOk } from "./pictures.js";
 import { exportShape, requestCsv } from "./requestexport.js";
 import { normCountry, normProvince, COUNTRIES, PROVINCES } from "./customer.js";
 
@@ -51,7 +52,7 @@ const brandKeysSorted = () => Object.keys(brandNames).sort((a, b) => brandLabel(
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
 
 // ------------------------------------------------------------------ tabs
-const TABS = ["shops", "requests", "view", "docs", "stock"];
+const TABS = ["shops", "requests", "view", "docs", "pics", "stock"];
 function selectTab(name) {
   for (const t of TABS) {
     $("tab-" + t).setAttribute("aria-selected", String(t === name));
@@ -62,6 +63,7 @@ function selectTab(name) {
   if (name === "requests") loadRequests();
   if (name === "view") openShopView();
   if (name === "docs") loadDocs();
+  if (name === "pics") loadPics();
 }
 for (const t of TABS) $("tab-" + t).addEventListener("click", () => selectTab(t));
 $("signout").addEventListener("click", () => signOut(auth));
@@ -485,6 +487,148 @@ async function deleteDoc(rec, btn) {
   } catch (err) { console.error(err); toast(`Could not delete: ${err.code || err.message}`, true); btn.disabled = false; }
 }
 
+// ------------------------------------------------------------------ pictures
+// One picture per part number, stored per brand (see pictures.js): the package from tools/extract_pictures.py is published in one go,
+// and single pictures can be added, replaced or removed here. The owner reads everything; shops only their brands (firestore.rules).
+let picRows = [], picTarget = null, picPkg = null;
+
+function picMsg(msg, kind = "msg-error") { const m = $("pic-msg"); m.textContent = msg || ""; m.className = "msg " + kind; m.hidden = !msg; }
+
+async function loadPics() {
+  picMsg("");
+  try {
+    const snap = await getDocs(collection(db, "stock"));
+    const byKey = {};
+    for (const d of snap.docs) {
+      if (!/^items__[a-z0-9]+$/.test(d.id)) continue;   // the per-warehouse copies carry the same codes
+      const bk = d.id.split("__")[1], data = d.data();
+      for (const it of data.items || []) {
+        const code = String(it.code || "").trim();
+        if (!codeOk(code)) continue;
+        (byKey[bk + "__" + code] ||= { brandKey: bk, code, names: new Set() }).names.add(it.description);
+      }
+    }
+    const bks = [...new Set([...Object.values(byKey).map((r) => r.brandKey), ...Object.keys(brandNames)])];
+    const { byCode, brandOf } = await loadThumbs({ db, doc, getDoc }, bks);
+    for (const [code, bk] of Object.entries(brandOf)) (byKey[bk + "__" + code] ||= { brandKey: bk, code, names: new Set() });   // a picture whose product is not in stock now
+    picRows = Object.values(byKey).map((r) => ({ ...r, url: brandOf[r.code] === r.brandKey ? byCode[r.code] : null }));
+  } catch (e) { console.error(e); picMsg(`Could not load the pictures: ${e.code || e.message}`); picRows = []; }
+  renderPics();
+}
+
+function renderPics() {
+  const body = $("pic-table").querySelector("tbody"); body.replaceChildren();
+  const first = (r) => [...r.names][0] || "";
+  const rows = [...picRows].sort((a, b) => brandLabel(a.brandKey).localeCompare(brandLabel(b.brandKey)) || first(a).localeCompare(first(b)) || a.code.localeCompare(b.code));
+  const have = rows.filter((r) => r.url).length;
+  $("pic-count").textContent = `${have} with a picture, ${rows.length - have} without`;
+  for (const r of rows) {
+    const choose = h("button", { class: "btn btn-ghost btn-sm", type: "button", text: r.url ? "Replace…" : "Add a picture…" });
+    choose.addEventListener("click", () => { picTarget = r; $("pic-one").value = ""; $("pic-one").click(); });
+    const rm = r.url ? h("button", { class: "btn btn-danger btn-sm", type: "button", text: "Remove" }) : null;
+    if (rm) rm.addEventListener("click", () => removePicture(r, rm));
+    body.append(h("tr", {},
+      h("td", {}, r.url ? h("img", { alt: "", src: r.url, style: "height:48px;max-width:80px;object-fit:contain;background:#f4f4f4;border-radius:6px" }) : h("span", { class: "hint", text: "–" })),
+      h("td", {}, h("code", { text: r.code })),
+      h("td", { text: [...r.names].join(" · ") || "(not in the current stock)" }),
+      h("td", { text: brandLabel(r.brandKey) }),
+      h("td", {}, choose, " ", rm)));
+  }
+}
+
+/** One brand as stored: the manifest and the thumbnails as base64 { code: b64 }. */
+async function brandState(bk) {
+  const m = await getDoc(doc(db, "pictures", bk));
+  const manifest = m.exists() ? m.data() : null, thumbs = {};
+  const n = manifest ? Number(manifest.chunks) || 0 : 0;
+  const snaps = await Promise.all(Array.from({ length: n }, (_, i) => getDoc(doc(db, "pictureThumbs", thumbDocId(bk, i + 1)))));
+  for (const s of snaps) if (s.exists()) Object.assign(thumbs, s.data().map || {});
+  return { manifest, thumbs };
+}
+
+async function runPicturePlan(plan, onProgress) {
+  const batches = batchOps(planOps(plan));
+  let done = 0;
+  for (const ops of batches) {
+    const b = writeBatch(db);
+    for (const o of ops) {
+      const ref = doc(db, o.col, o.id);
+      if (o.op === "set") b.set(ref, { ...o.data, updatedAt: serverTimestamp() }); else b.delete(ref);
+    }
+    await b.commit();
+    done++; if (onProgress) onProgress(done / batches.length);
+  }
+}
+
+/** Add or replace pictures of one brand: pics = { code: { t, l } } (base64 thumbnail and large picture). replaceAll drops the others. */
+async function savePictures(bk, pics, replaceAll, onProgress) {
+  const { manifest, thumbs: old } = await brandState(bk);
+  const thumbs = replaceAll ? {} : { ...old }, largeSets = {};
+  for (const [code, p] of Object.entries(pics)) { thumbs[code] = p.t; largeSets[code] = p.l; }
+  await runPicturePlan(planBrand(bk, thumbs, largeSets, manifest), onProgress);
+}
+
+async function removePicture(r, btn) {
+  if (!confirm(`Remove the picture of ${r.code} (${[...r.names][0] || "no product in stock"})? Shops no longer see it.`)) return;
+  btn.disabled = true;
+  try {
+    const { manifest, thumbs } = await brandState(r.brandKey);
+    delete thumbs[r.code];
+    await runPicturePlan(planBrand(r.brandKey, thumbs, {}, manifest));
+    toast(`Removed the picture of ${r.code}`);
+    await loadPics();
+  } catch (e) { console.error(e); picMsg(`Could not remove it: ${e.code || e.message}`); btn.disabled = false; }
+}
+
+/** A picked image as a JPEG (base64 without the prefix) that fits inside `fit`, on the same pale tile colour as the catalogue pictures. */
+async function jpegFit(bmp, fit, quality) {
+  const [w, h2] = fitSize(bmp.width, bmp.height, fit), c = document.createElement("canvas");
+  c.width = w; c.height = h2;
+  const g = c.getContext("2d"); g.fillStyle = "#f4f4f4"; g.fillRect(0, 0, w, h2); g.drawImage(bmp, 0, 0, w, h2);
+  return c.toDataURL("image/jpeg", quality).split(",")[1];
+}
+
+$("pic-one").addEventListener("change", async () => {
+  const f = $("pic-one").files[0], r = picTarget; if (!f || !r) return;
+  picMsg("");
+  try {
+    if (!/^image\/(jpeg|png|webp)$/.test(f.type)) throw new Error("The picture must be a JPG, PNG or WebP image.");
+    let bmp; try { bmp = await createImageBitmap(f); } catch (e) { throw new Error("That image could not be read."); }
+    const t = await jpegFit(bmp, THUMB_FIT, 0.82), l = await jpegFit(bmp, LARGE_FIT, 0.85);
+    if (t.length > MAX_THUMB_CHARS || l.length > MAX_LARGE_CHARS) throw new Error("The picture is too large even after resizing.");
+    await savePictures(r.brandKey, { [r.code]: { t, l } }, false);
+    toast(`Saved the picture of ${r.code}`);
+    await loadPics();
+  } catch (e) { console.error(e); picMsg(e.message && !e.code ? e.message : `Could not save the picture: ${e.code || e.message}`); }
+});
+
+$("pic-pick").addEventListener("click", () => $("pic-file").click());
+$("pic-cancel").addEventListener("click", () => { picPkg = null; $("pic-preview").hidden = true; $("pic-file").value = ""; $("pic-file-name").textContent = ""; });
+$("pic-file").addEventListener("change", async () => {
+  const f = $("pic-file").files[0]; if (!f) return;
+  picMsg(""); picPkg = null; $("pic-preview").hidden = true; $("pic-file-name").textContent = f.name;
+  try {
+    picPkg = validatePackage(JSON.parse(await f.text()));
+    const parts = Object.entries(picPkg).map(([bk, m]) => `${Object.keys(m).length} for ${brandLabel(bk)}`);
+    $("pic-preview-text").textContent = `This file holds ${parts.join(", ") || "no picture"} (${(f.size / 1e6).toFixed(1)} MB). Shops of those brands will see them.`;
+    $("pic-replace").checked = false; $("pic-progress").hidden = true; $("pic-publish").disabled = !parts.length;
+    $("pic-preview").hidden = false;
+  } catch (e) { picMsg(e instanceof SyntaxError ? "That file is not valid JSON." : e.message); }
+});
+$("pic-publish").addEventListener("click", async () => {
+  if (!picPkg) return;
+  const btn = $("pic-publish"), bar = $("pic-progress"); btn.disabled = true; bar.hidden = false; picMsg("");
+  const entries = Object.entries(picPkg);
+  try {
+    for (const [i, [bk, pics]] of entries.entries())
+      await savePictures(bk, pics, $("pic-replace").checked, (p) => { bar.firstElementChild.style.width = Math.round(((i + p) / entries.length) * 100) + "%"; });
+    toast("Pictures published");
+    $("pic-cancel").click();
+    await loadPics();
+  } catch (e) { console.error(e); picMsg(`Could not publish the pictures: ${e.code || e.message}`); }
+  finally { btn.disabled = false; }
+});
+
 // ------------------------------------------------------------------ stock upload
 async function loadPublished() {
   const kv = $("published"); kv.replaceChildren();
@@ -844,6 +988,7 @@ async function loadShopView() {
   const tier = shop.priceTier, cur = shop.currency, scope = scopeOf(u || shop);
   setLang($("v-lang").value);
   try {
+    const picturesP = loadThumbs({ db, doc, getDoc }, keys);
     const [metaSnap, ...rest] = await Promise.all([
       getDoc(doc(db, "stock", "meta")),
       ...keys.map((k) => getDoc(doc(db, "stock", itemsDocId(k, scope)))),
@@ -852,6 +997,7 @@ async function loadShopView() {
     ]);
     const n = keys.length, itemSnaps = rest.slice(0, n), priceSnaps = rest.slice(n, 2 * n), resSnaps = rest.slice(2 * n);
     const items = [], prices = {}, reserved = {}, brands = [];
+    const pictures = (await picturesP).byCode;
     keys.forEach((k, i) => {
       if (itemSnaps[i].exists()) {
         const d = itemSnaps[i].data(); brands.push({ key: k, name: d.brand || k });
@@ -872,8 +1018,8 @@ async function loadShopView() {
     if (!keys.length) warn.push("No brand is enabled here: this user sees nothing.");
     else if (!items.length) warn.push("Nothing is published for these brands yet.");
     if (warn.length) { msg.textContent = warn.join(" "); msg.className = "msg msg-warn"; msg.hidden = false; }
-    if (!shopView) shopView = createStockView($("v-root"), { cart: null });
-    shopView.setData({ items, prices, reserved, brands, currency: cur }, true);
+    if (!shopView) shopView = createStockView($("v-root"), { cart: null, loadLarge: (bk, code) => loadLarge({ db, doc, getDoc }, bk, code) });
+    shopView.setData({ items, prices, reserved, brands, currency: cur, pictures }, true);
   } catch (e) {
     console.error(e); msg.textContent = `Could not load the view: ${e.code || e.message}`; msg.className = "msg msg-error"; msg.hidden = false;
   }

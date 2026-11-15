@@ -30,6 +30,7 @@
       <button role="tab" id="tab-requests" aria-selected="false" aria-controls="panel-requests">Requests <span id="req-badge" class="count-pill" hidden>0</span></button>
       <button role="tab" id="tab-view" aria-selected="false" aria-controls="panel-view">Shop view</button>
       <button role="tab" id="tab-docs" aria-selected="false" aria-controls="panel-docs">Documents</button>
+      <button role="tab" id="tab-pics" aria-selected="false" aria-controls="panel-pics">Pictures</button>
       <button role="tab" id="tab-stock" aria-selected="false" aria-controls="panel-stock">Stock upload</button>
     </nav>
     <span class="spacer"></span>
@@ -109,6 +110,38 @@
         <thead><tr><th>When</th><th>Shop</th><th>User</th><th>Document</th></tr></thead>
         <tbody></tbody></table></div>
       <p id="dl-empty" class="count" hidden>No download yet.</p>
+    </section>
+
+    <!-- PICTURES -->
+    <section id="panel-pics" role="tabpanel" aria-labelledby="tab-pics" hidden>
+      <div class="h-row"><h2>Pictures</h2></div>
+      <div class="msg msg-info">One picture per <b>part number</b>: every size of a model shares it. Shops see a small picture on each product (tap to enlarge) and can switch pictures off in their stock page.
+        Pictures are stored per brand and only shops with that brand can read them.</div>
+      <div id="pic-msg" class="msg msg-error" hidden></div>
+      <div class="card pad" style="margin-bottom:16px">
+        <h3 style="margin-bottom:10px">Publish a pictures file</h3>
+        <ol style="margin:0 0 12px;padding-left:20px;color:var(--muted)">
+          <li>Double-click <code>tools\run-pictures.bat</code>. It reads the catalogues, matches the pictures to your stock and opens the folder with <code>pictures.json</code>.</li>
+          <li>Choose that file below.</li>
+        </ol>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button id="pic-pick" class="btn btn-primary" type="button">Choose pictures.json…</button>
+          <input id="pic-file" type="file" accept=".json,application/json" hidden>
+          <span id="pic-file-name" class="hint"></span>
+        </div>
+        <div id="pic-preview" style="margin-top:12px" hidden>
+          <p id="pic-preview-text" style="margin:0 0 8px"></p>
+          <label class="check" style="font-weight:400"><input type="checkbox" id="pic-replace"> Also remove the pictures that are not in this file</label>
+          <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap"><button id="pic-publish" class="btn btn-cta" type="button">Publish the pictures</button><button id="pic-cancel" class="btn btn-ghost" type="button">Cancel</button></div>
+          <div id="pic-progress" class="progress" style="margin-top:10px" hidden><i></i></div>
+        </div>
+      </div>
+      <div class="h-row"><h3>Pictures by part number</h3><span id="pic-count" class="hint"></span></div>
+      <div class="card" style="overflow:auto"><table class="t stack" id="pic-table">
+        <thead><tr><th>Picture</th><th>Part number</th><th>Product</th><th>Brand</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
+      <input id="pic-one" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+      <p class="hint" style="margin-top:10px">Choose a picture of the product on a plain or white background (JPG, PNG or WebP). It is resized for you (a small version for the list, a larger one when a shop opens it).</p>
     </section>
 
     <!-- STOCK -->
