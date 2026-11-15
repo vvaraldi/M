@@ -54,5 +54,34 @@ class Library(unittest.TestCase):
         self.assertEqual(ep.scan_library(os.path.join(tempfile.gettempdir(), "no-such-folder-xyz")), ({}, {}))
 
 
+class Pack(unittest.TestCase):
+    def test_first_picture_of_each_product(self):
+        with tempfile.TemporaryDirectory() as root:
+            def touch(*parts):
+                p = os.path.join(root, *parts)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                open(p, "wb").write(b"x")
+                return p
+            skis0 = touch("00_SKIMO", "13214_GARA SPEED", "13214_0.jpg")
+            touch("00_SKIMO", "13214_GARA SPEED", "13214_1.jpg")
+            touch("00_SKIMO", "13214_GARA SPEED", "._13214_0.jpg")                      # Mac junk
+            helmet1 = touch("04_ACCESSORIES", "36_HELMETS", "36043_AERO PRO", "36043_1.jpg")   # no _0: _1 is the first
+            touch("04_ACCESSORIES", "36_HELMETS", "36043_AERO PRO", "36043_2.jpg")
+            touch("00_SKIMO", "01_OLD", "13214_GARA", "13214_0.jpg")                    # an OLD copy never beats the current one
+            old = touch("00_SKIMO", "01_OLD", "13192_GARA60", "13192_0.jpg")
+            touch("04_ACCESSORIES-20261115T035944Z-1-001", "04_ACCESSORIES", "99999_1.jpg")   # zip duplicate
+            touch("03_POLES", "41168_BORMIO", "41153_1.jpg")                            # folder code 41168, files carry the older code 41153
+            touch("00_SKIMO", "00_PNG", "gara_plus.png")                                # not a numbered picture
+            pack = ip.pack_pictures(root)
+            self.assertEqual(pack["13214"]["path"], skis0)
+            self.assertFalse(pack["13214"]["old"])
+            self.assertEqual(pack["36043"]["path"], helmet1)
+            self.assertEqual((pack["13192"]["path"], pack["13192"]["old"]), (old, True))
+            self.assertIn("41168", pack)
+            self.assertIn("41153", pack)
+            self.assertNotIn("99999", pack)
+            self.assertNotIn("GARA", pack)
+
+
 if __name__ == "__main__":
     unittest.main()

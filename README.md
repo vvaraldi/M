@@ -128,6 +128,10 @@ requested ship date, notes) and sends. The request is checked and saved by a Clo
 - **The picture library is a folder on your drive** (and the master): `Sharable info\Pictures\<Brand>\<season>\<part number> <description>.jpg`, for example `Pictures\Skitrab\2026-27\13214 GARA SPEED.jpg`.
   Only the start of the file name matters (`13214`, `40237R`; the website's own `13214_0.JPG` works too). To change a picture, drop a better file in with the same part number and run `run-pictures.bat`.
   For one part number a real picture beats one the script took from a catalogue (`... (catalogue).jpg`), then the newest season folder wins, then the larger file. The folder is easy to zip and share.
+- **Ski Trab's image pack** (folders such as `00_SKIMO\13214_GARA SPEED\13214_0.jpg`): `python tools\import_pictures.py --pack "<pack folder>" --brand Skitrab --season 2026-27 [--dry-run]`
+  takes the **first picture of each product: `_0` when it exists (skis and bindings: the top-and-base shot), otherwise `_1`** (helmets, bags, gloves, apparel: the product on white).
+  Products in `OLD` folders go to the previous season folder (`--old-season`, default 2025-26) and never beat a current one; the zip duplicate folder, Mac `._` files and the `00_PNG` renders are ignored.
+  The pack's picture replaces what the library has for that part number and season, and removes its `(catalogue)` fallback files.
 - Fill the library from a folder of downloaded pictures: `python tools\import_pictures.py --src "<folder>" --brand Skitrab --season 2026-27 [--only-new]` (files get the description from the workbook's Catalogue; nothing is overwritten).
 - Run [`tools/run-pictures.bat`](tools/run-pictures.bat) (after `run-export.bat`). `tools/extract_pictures.py` takes each part number in stock from the library; for those the library lacks it searches the Ski Trab catalogues
   (2026 first, then back to 2020), takes the nearest product picture on the page, saves it into the library (tagged `(catalogue)`) and writes `tools/output/pictures/`:
