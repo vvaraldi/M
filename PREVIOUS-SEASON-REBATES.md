@@ -1,7 +1,8 @@
 # Previous-season rebates: what changed in the workbook, and what to build in the export and the portal
 
 Written 2026-11-11 for the Claude Code session that maintains this repository (`tools/export_stock.py`, `tools/run-export.bat`, the web pages in `docs/` and the functions in `functions/src`).
-Updated 2026-11-12: new exceptions table `tAgeExceptions` (items kept out of the rule), see §2 and §3.
+Updated 2026-11-12: new exceptions table `tAgeExceptions` (items kept out of the rule), see §2 and §3; the price fallback by part number now matches the size (§2, "How the macro computes things"); two skin rolls corrected (check values in §3).
+Updated 2026-11-17: new Stock sheet column `Item code` (column D), every column from `Condition` onwards moved one to the right (§2, Stock sheet). Nothing to change in the export: it reads by header text.
 The workbook side is done and saved. The export and the web interface still have to be adapted: that is your part.
 
 Read with: `README.md` (how the portal works), `AUTOMATION-PLAYBOOK.md`, `REQUESTS-SCHEMA.md`, and `..\SKITRAB-WORKBOOK-REFERENCE.md` (outside the repo).
@@ -63,11 +64,24 @@ New columns at the right, after "Reserved for". Find them **by header text**: th
 | `Shop CAD (latest)` | base shop price in CAD (DealerCAD, latest available) |
 | `Shop CAD net` | base × (1 − shop %), only for rule items |
 
+- **`Item code` column (added 2026-11-17)** at D, between `SKU / barcode` and `Condition`. Every column from `Condition` onwards moved one to the right: main table B:P, lines without stock R:W, reservations Y:AA, age columns AB:AJ.
+  - The macro fills it with the same rule as `item_code()` in `export_stock.py`, run on 2026-11-17 against all 163 stock lines with 0 differences:
+    1. the Catalogue `PartNo` of the barcode, taken from the line valid this season (Active first, then the highest FromSeason), else from the line with the highest FromSeason;
+    2. else the first code typed on the Stock moves for that SKU (no `P:`, must contain a digit);
+    3. else the code inside a `P:` key.
+  - The export does not read this column and needs no change: stock.json was byte-identical before and after (except `generatedAt`).
+  - If you change `item_code()`, tell the owner so the macro can be aligned.
+  - Never locate Stock columns by letter. The macros now find `SKU / barcode`, `Location`, `Condition` and `On hand` by header text too.
 - Age, brand and rebate depend on the SKU and the condition, not on the location. When the export merges the same SKU + condition held in several warehouses, the values are identical.
 - **Stock valuation changed:** for rule items aged 1 year or more, `Unit shop $` = the latest shop price and `Value %` = 1 − shop %. This does not concern the portal (cost and value never go to shops), but don't be surprised by it.
 - How the macro computes things, if you need to reproduce it in Python:
   - Last season: the highest `ToSeason` among the Catalogue lines with the same `PartNo`, else the same SKU. `ToSeason` 50 means still current, which counts as the current season. Lines without `ToSeason` (inactive) are ignored.
   - Latest price: for each price column separately, the Catalogue line with the highest season (`ToSeason`, 50 → current) where the price is > 0. On a tie, the lower row wins (higher Ref). Look up by SKU first, then by part number.
+  - **The part-number fallback must match the size** (changed 2026-11-12). One part number can hold several sizes (skin rolls 21108B: 85 / 100 / 110 / 115 / 120 mm), and the old fallback gave a 115 mm roll the 85 mm price.
+    - Only use Catalogue lines whose `Size` equals the stock line's size. Normalise both: trim, upper case, and treat `""`, `N/A`, `NA`, `.`, `-` as "no size".
+    - If the part number is priced in a single size only, that size matches whatever the stock size is (accessories listed with size `N/A`).
+    - Otherwise, no matching size means no base price (price on request). Never take another size's price.
+    - Do this for every price column you look up (CAD, USD, EUR, Export).
 - The workbook's net columns are rounded with VBA `Round` (banker's rounding). The export should compute its own prices with `cents()` (half up), so a 1-cent difference on an exact half cent is normal.
 
 ### Invoice editor
@@ -123,6 +137,8 @@ The owner does not want the age itself on invoices: only "Previous season".
 | Gara Aero tracksuit man L | 8056201708070 | New | 1 | 319.95 → 223.97 (−30 %) | 159.975 → 119.98 (−25 %) |
 | Maestro.2 171 (current) | 8057971068395 | New | 0 | 1,649.95, no rebate | 874.47, no rebate |
 | Endhook Attivo (22048, exception) | 8059830407574 | New | 2 | 16.95, no rebate | 9.32, no rebate |
+| Mohair 100% roll 115 mm, per metre (21108B) | 8059830552205 | New | 3 | 50.99 → 30.59 (−40 %) | 25.99 → 16.89 (−35 %) |
+| Race roll 85 mm, per metre (2110885) | 8059830407147 | New | 0 | 49.95, no rebate | 27.47, no rebate |
 
 These are the export values, computed with `cents()` from the unrounded base: Neve shop base is 634.375, Ortles Next 484.975, Stelvio Rental 441.6725.
 The Stock sheet shows 223.96 for the tracksuit, because VBA `Round` uses banker's rounding on the exact half cent.
